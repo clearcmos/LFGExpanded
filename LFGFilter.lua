@@ -4,14 +4,9 @@ local addonName, addon = ...
 -- Constants
 -------------------------------------------------------------------------------
 
-local ROLE_ICON_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES"
+local ROLE_ICON_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
+local ROLE_BG_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICONS-ROLEBACKGROUNDS"
 local CLASS_ICON_TEXTURE = "Interface\\GLUES\\CHARACTERCREATE\\UI-CharacterCreate-Classes"
-
-local ROLE_TCOORDS = {
-    TANK    = { 0, 19/64, 22/64, 41/64 },
-    HEALER  = { 20/64, 39/64, 1/64, 20/64 },
-    DAMAGER = { 20/64, 39/64, 22/64, 41/64 },
-}
 
 local ROLE_ORDER = { "TANK", "HEALER", "DAMAGER" }
 local ROLE_LABELS = { TANK = "Tank", HEALER = "Healer", DAMAGER = "DPS" }
@@ -27,18 +22,18 @@ local CLASS_LABELS = {
     SHAMAN = "Shaman", WARLOCK = "Warlock", WARRIOR = "Warrior",
 }
 
-local ICON_SIZE = 28
-local ICON_GAP = 3
-local COLUMN_WIDTH = 155
+local ROLE_BUTTON_SIZE = 48
+local ROLE_BG_SIZE = 80
+local ROLE_BUTTON_GAP = 25
 local SECTION_GAP = 10
 local CLASS_ROW_HEIGHT = 28
 local CLASS_ICON_SMALL = 18
 local PANEL_WIDTH = 384
 local PANEL_HEIGHT = 512
 local CONTENT_LEFT = 22
-local CONTENT_TOP = -90
+local CONTENT_TOP = -50
 local CONTENT_WIDTH = 324
-local CONTENT_HEIGHT = 320
+local CONTENT_HEIGHT = 347
 
 -------------------------------------------------------------------------------
 -- State
@@ -222,21 +217,22 @@ local function UpdateRoleButtonVisual(btn, state)
         btn.icon:SetDesaturated(false)
         btn.icon:SetVertexColor(1, 1, 1)
         btn.icon:SetAlpha(1.0)
-        btn.selectedBorder:SetVertexColor(1, 0.82, 0)
-        btn.selectedBorder:Show()
+        if btn.bg then btn.bg:SetAlpha(0.6); btn.bg:SetVertexColor(1, 1, 1) end
+        if btn.includeCheck then btn.includeCheck:Show() end
         if btn.excludeX then btn.excludeX:Hide() end
     elseif state == "exclude" then
         btn.icon:SetDesaturated(false)
         btn.icon:SetVertexColor(1, 0.3, 0.3)
         btn.icon:SetAlpha(1.0)
-        btn.selectedBorder:SetVertexColor(1, 0.2, 0.2)
-        btn.selectedBorder:Show()
+        if btn.bg then btn.bg:SetAlpha(0.4); btn.bg:SetVertexColor(1, 0.3, 0.3) end
+        if btn.includeCheck then btn.includeCheck:Hide() end
         if btn.excludeX then btn.excludeX:Show() end
     else
         btn.icon:SetDesaturated(true)
         btn.icon:SetVertexColor(1, 1, 1)
         btn.icon:SetAlpha(0.4)
-        btn.selectedBorder:Hide()
+        if btn.bg then btn.bg:SetAlpha(0.15); btn.bg:SetVertexColor(1, 1, 1) end
+        if btn.includeCheck then btn.includeCheck:Hide() end
         if btn.excludeX then btn.excludeX:Hide() end
     end
 end
@@ -305,59 +301,62 @@ end
 
 local function CreateRoleButton(parent, role, filterTable, excludeTable, refreshFn)
     local btn = CreateFrame("Button", nil, parent)
-    btn:SetSize(ICON_SIZE, ICON_SIZE)
-    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    btn:SetSize(ROLE_BUTTON_SIZE, ROLE_BUTTON_SIZE)
     btn.filterKey = role
 
+    -- Colored background ring (80x80, centered behind 48x48 button)
+    local bg = btn:CreateTexture(nil, "BACKGROUND")
+    bg:SetSize(ROLE_BG_SIZE, ROLE_BG_SIZE)
+    bg:SetPoint("CENTER")
+    bg:SetTexture(ROLE_BG_TEXTURE)
+    bg:SetTexCoord(GetBackgroundTexCoordsForRole(role))
+    bg:SetAlpha(0.15)
+    btn.bg = bg
+
+    -- Role icon (full button size, uses big role icon atlas)
     local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetPoint("TOPLEFT", 2, -2)
-    icon:SetPoint("BOTTOMRIGHT", -2, 2)
+    icon:SetAllPoints()
     icon:SetTexture(ROLE_ICON_TEXTURE)
-    icon:SetTexCoord(unpack(ROLE_TCOORDS[role]))
+    icon:SetTexCoord(GetTexCoordsForRole(role))
     btn.icon = icon
 
-    local sel = btn:CreateTexture(nil, "OVERLAY")
-    sel:SetPoint("TOPLEFT", -4, 4)
-    sel:SetPoint("BOTTOMRIGHT", 4, -4)
-    sel:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-    sel:SetBlendMode("ADD")
-    sel:SetAlpha(0.7)
-    sel:Hide()
-    btn.selectedBorder = sel
+    -- Green checkmark overlay (for include state)
+    local chk = btn:CreateTexture(nil, "OVERLAY", nil, 2)
+    chk:SetSize(ROLE_BUTTON_SIZE * 0.6, ROLE_BUTTON_SIZE * 0.6)
+    chk:SetPoint("CENTER")
+    chk:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+    chk:Hide()
+    btn.includeCheck = chk
 
-    -- Red X overlay for exclude state
-    if excludeTable then
-        local exX = btn:CreateTexture(nil, "OVERLAY", nil, 2)
-        exX:SetSize(ICON_SIZE - 4, ICON_SIZE - 4)
-        exX:SetPoint("CENTER")
-        exX:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
-        exX:Hide()
-        btn.excludeX = exX
-    end
+    -- Red X overlay (for exclude state)
+    local exX = btn:CreateTexture(nil, "OVERLAY", nil, 2)
+    exX:SetSize(ROLE_BUTTON_SIZE * 0.6, ROLE_BUTTON_SIZE * 0.6)
+    exX:SetPoint("CENTER")
+    exX:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
+    exX:Hide()
+    btn.excludeX = exX
 
+    -- Highlight on hover
     local hl = btn:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+    hl:SetSize(ROLE_BG_SIZE, ROLE_BG_SIZE)
+    hl:SetPoint("CENTER")
+    hl:SetTexture("Interface\\Buttons\\UI-Common-MouseHilight")
     hl:SetBlendMode("ADD")
     hl:SetAlpha(0.3)
 
-    btn:SetScript("OnClick", function(self, mouseButton)
-        if mouseButton == "RightButton" and excludeTable then
-            -- Right-click: toggle exclude (clear require)
-            filterTable[self.filterKey] = nil
-            if excludeTable[self.filterKey] then
-                excludeTable[self.filterKey] = nil
-            else
-                excludeTable[self.filterKey] = true
-            end
+    -- Click cycles: off → include → exclude → off
+    btn:SetScript("OnClick", function(self)
+        local key = self.filterKey
+        if filterTable[key] then
+            -- include → exclude
+            filterTable[key] = nil
+            excludeTable[key] = true
+        elseif excludeTable[key] then
+            -- exclude → off
+            excludeTable[key] = nil
         else
-            -- Left-click: toggle require (clear exclude)
-            if excludeTable then excludeTable[self.filterKey] = nil end
-            if filterTable[self.filterKey] then
-                filterTable[self.filterKey] = nil
-            else
-                filterTable[self.filterKey] = true
-            end
+            -- off → include
+            filterTable[key] = true
         end
         refreshFn()
         TriggerRefilter()
@@ -365,10 +364,7 @@ local function CreateRoleButton(parent, role, filterTable, excludeTable, refresh
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(ROLE_LABELS[role], 1, 1, 1)
-        if excludeTable then
-            GameTooltip:AddLine("Left-click: must have", 0.5, 1, 0.5)
-            GameTooltip:AddLine("Right-click: must NOT have", 1, 0.4, 0.4)
-        end
+        GameTooltip:AddLine("Click to cycle: off / require / exclude", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
     btn:SetScript("OnLeave", GameTooltip_Hide)
@@ -466,27 +462,27 @@ local function BuildFilterSection(parent, f, widgets)
     content:SetSize(CONTENT_WIDTH, 1)
     widgets.contentFrame = content
 
-    local cYOff = 0
-
     local refreshFn = function() RefreshSection(widgets, f) end
 
-    -- Roles label
-    local rolesLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    rolesLabel:SetPoint("TOP", content, "TOP", 0, cYOff)
-    rolesLabel:SetText("Roles")
-    rolesLabel:SetTextColor(0.7, 0.7, 0.7)
-    cYOff = cYOff - rolesLabel:GetStringHeight() - 4
+    -- Role icon zone matches native LFG proportions (68px: icons at -60, content at -128)
+    local separatorOff = -68
+    local iconCenterY = -((math.abs(separatorOff) - ROLE_BUTTON_SIZE) / 2)
+    local cYOff = iconCenterY
 
-    local roleRowWidth = 3 * ICON_SIZE + 2 * ICON_GAP
-    local roleStartX = (CONTENT_WIDTH - roleRowWidth) / 2
+    local numButtons = 3
+    local totalWidth = numButtons * ROLE_BUTTON_SIZE + (numButtons - 1) * ROLE_BUTTON_GAP
+    local roleStartX = (CONTENT_WIDTH - totalWidth) / 2
     widgets.roleButtons = {}
     for i, role in ipairs(ROLE_ORDER) do
         local btn = CreateRoleButton(content, role, f.roles, f.excludeRoles, refreshFn)
-        local xOff = roleStartX + (i - 1) * (ICON_SIZE + ICON_GAP)
+        local xOff = roleStartX + (i - 1) * (ROLE_BUTTON_SIZE + ROLE_BUTTON_GAP)
         btn:SetPoint("TOPLEFT", content, "TOPLEFT", xOff, cYOff)
         widgets.roleButtons[#widgets.roleButtons + 1] = btn
     end
-    cYOff = cYOff - ICON_SIZE - 8
+
+    -- No manual separator needed — the baked-in ornate bar in UI-LFG-FRAME
+    -- at y=-128 is revealed by positioning bgArt to start just below it
+    cYOff = separatorOff - 12
 
     widgets.classRows = {}
     for _, class in ipairs(CLASS_ORDER) do
@@ -574,10 +570,12 @@ local function CreateSidePanel()
     bgBot:SetTexture("Interface\\LFGFrame\\UI-LFG-FRAME")
     bgBot:SetTexCoord(0, 1.0, 0.5, 1.0)
 
-    -- Content area background
-    local bgArt = sidePanel:CreateTexture(nil, "BACKGROUND", nil, 0)
-    bgArt:SetSize(CONTENT_WIDTH, CONTENT_HEIGHT)
-    bgArt:SetPoint("TOPLEFT", CONTENT_LEFT, CONTENT_TOP - 1)
+    -- Content area background: matches native LFG exactly (y=-128, 282px tall)
+    -- This reveals the ornate separator bars baked into UI-LFG-FRAME at both
+    -- the top (between roles and content) and bottom (above button wells)
+    local bgArt = sidePanel:CreateTexture(nil, "BACKGROUND", nil, 2)
+    bgArt:SetSize(CONTENT_WIDTH, 282)
+    bgArt:SetPoint("TOPLEFT", CONTENT_LEFT, -128)
     bgArt:SetAtlas("groupfinder-background-classic")
 
     ---------------------------------------------------------------------------
