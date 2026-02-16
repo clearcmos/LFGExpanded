@@ -26,7 +26,7 @@ local ROLE_BUTTON_SIZE = 48
 local ROLE_BG_SIZE = 80
 local ROLE_BUTTON_GAP = 25
 local SECTION_GAP = 10
-local CLASS_ROW_HEIGHT = 28
+local CLASS_ROW_HEIGHT = 31
 local CLASS_ICON_SMALL = 18
 local PANEL_WIDTH = 384
 local PANEL_HEIGHT = 512
@@ -46,6 +46,9 @@ local showSingles = true
 local sidePanel
 local filterTab
 local filterWidgets = {}
+
+local classCounts = {}
+local classNotes = {}
 
 -------------------------------------------------------------------------------
 -- Filter Logic
@@ -207,6 +210,41 @@ local function FilterResults(browseFrame)
     end
 end
 
+local function ComputeClassData(results)
+    wipe(classCounts)
+    wipe(classNotes)
+    if not results then return end
+
+    for _, resultID in ipairs(results) do
+        local info = C_LFGList.GetSearchResultInfo(resultID)
+        if info then
+            local numMembers = info.numMembers or 0
+            local seenClasses = {}
+
+            for i = 1, numMembers do
+                local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
+                if memberInfo and memberInfo.classFilename then
+                    local class = memberInfo.classFilename
+                    if not seenClasses[class] then
+                        seenClasses[class] = true
+                        classCounts[class] = (classCounts[class] or 0) + 1
+                    end
+                end
+            end
+
+            local comment = info.comment
+            if comment and comment ~= "" then
+                for class in pairs(seenClasses) do
+                    if not classNotes[class] then
+                        classNotes[class] = {}
+                    end
+                    classNotes[class][#classNotes[class] + 1] = comment
+                end
+            end
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 -- UI Helpers
 -------------------------------------------------------------------------------
@@ -286,6 +324,21 @@ local function RefreshSection(widgets, f)
             state = "exclude"
         end
         UpdateClassRowVisual(row, state)
+    end
+end
+
+local function UpdateClassCounts()
+    if not filterWidgets.classRows then return end
+    for _, row in ipairs(filterWidgets.classRows) do
+        local count = classCounts[row.filterKey] or 0
+        row.countLabel:SetText(count)
+        if count > 0 then
+            row.countLabel:SetAlpha(1.0)
+            row.infoBtn:SetAlpha(0.8)
+        else
+            row.countLabel:SetAlpha(0.3)
+            row.infoBtn:SetAlpha(0.3)
+        end
     end
 end
 
@@ -403,6 +456,52 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
     if color then label:SetTextColor(color.r, color.g, color.b) end
     label:SetText(CLASS_LABELS[class])
     row.label = label
+
+    -- Count label (number of listings with this class)
+    local countLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    countLabel:SetPoint("RIGHT", row, "RIGHT", -170, 0)
+    countLabel:SetJustifyH("RIGHT")
+    countLabel:SetText("0")
+    countLabel:SetTextColor(0.7, 0.7, 0.7)
+    countLabel:SetAlpha(0.3)
+    row.countLabel = countLabel
+
+    -- Info button (hover shows notes from listings of this class)
+    local infoFrame = CreateFrame("Frame", nil, row)
+    infoFrame:SetSize(24, 24)
+    infoFrame:SetPoint("LEFT", countLabel, "RIGHT", 6, 0)
+    infoFrame:EnableMouse(true)
+
+    local infoIcon = infoFrame:CreateTexture(nil, "ARTWORK")
+    infoIcon:SetAllPoints()
+    infoIcon:SetTexture("Interface\\common\\help-i")
+    infoIcon:SetAlpha(0.8)
+
+    infoFrame:SetScript("OnEnter", function(self)
+        local cls = row.filterKey
+        local notes = classNotes[cls]
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        local clr = RAID_CLASS_COLORS[cls]
+        if clr then
+            GameTooltip:SetText(CLASS_LABELS[cls] .. " Notes", clr.r, clr.g, clr.b)
+        else
+            GameTooltip:SetText(CLASS_LABELS[cls] .. " Notes", 1, 1, 1)
+        end
+        if notes and #notes > 0 then
+            for i, note in ipairs(notes) do
+                if i > 20 then
+                    GameTooltip:AddLine("... and " .. (#notes - 20) .. " more", 0.5, 0.5, 0.5)
+                    break
+                end
+                GameTooltip:AddLine(note, 1, 0.82, 0, true)
+            end
+        else
+            GameTooltip:AddLine("No notes in current listings", 0.5, 0.5, 0.5)
+        end
+        GameTooltip:Show()
+    end)
+    infoFrame:SetScript("OnLeave", GameTooltip_Hide)
+    row.infoBtn = infoFrame
 
     local check = row:CreateTexture(nil, "OVERLAY")
     check:SetSize(16, 16)
@@ -768,11 +867,14 @@ local function Initialize()
     end
 
     hooksecurefunc(LFGBrowseFrame, "UpdateResultList", function(self)
-        if not HasActiveFilters() then return end
-        local pct = SaveScroll()
-        FilterResults(self)
-        self:UpdateResults()
-        RestoreScroll(pct)
+        if HasActiveFilters() then
+            local pct = SaveScroll()
+            FilterResults(self)
+            self:UpdateResults()
+            RestoreScroll(pct)
+        end
+        ComputeClassData(self.results)
+        UpdateClassCounts()
     end)
 
 end
