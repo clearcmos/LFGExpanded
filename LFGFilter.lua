@@ -775,27 +775,6 @@ local function Initialize()
         RestoreScroll(pct)
     end)
 
-    -- Auto-remove delisted entries in real-time
-    local delistFrame = CreateFrame("Frame")
-    delistFrame:RegisterEvent("LFG_LIST_SEARCH_RESULT_UPDATED")
-    delistFrame:SetScript("OnEvent", function(_, event, resultID)
-        if not LFGBrowseFrame:IsShown() then return end
-        local results = LFGBrowseFrame.results
-        if not results then return end
-
-        local info = C_LFGList.GetSearchResultInfo(resultID)
-        if info and info.isDelisted then
-            for i = #results, 1, -1 do
-                if results[i] == resultID then
-                    table.remove(results, i)
-                    local pct = SaveScroll()
-                    LFGBrowseFrame:UpdateResults()
-                    RestoreScroll(pct)
-                    return
-                end
-            end
-        end
-    end)
 end
 
 local frame = CreateFrame("Frame")
