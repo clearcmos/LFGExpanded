@@ -30,28 +30,27 @@ local CLASS_LABELS = {
 local ICON_SIZE = 28
 local ICON_GAP = 3
 local COLUMN_WIDTH = 155
-local COLUMN_GAP = 14
 local SECTION_GAP = 10
-local CLASS_ROW_HEIGHT = 20
-local CLASS_ICON_SMALL = 16
+local CLASS_ROW_HEIGHT = 28
+local CLASS_ICON_SMALL = 18
 local PANEL_WIDTH = 384
 local PANEL_HEIGHT = 512
 local CONTENT_LEFT = 22
-local CONTENT_TOP = -128
+local CONTENT_TOP = -90
 local CONTENT_WIDTH = 324
-local CONTENT_HEIGHT = 282
+local CONTENT_HEIGHT = 320
 
 -------------------------------------------------------------------------------
 -- State
 -------------------------------------------------------------------------------
 
-local groupFilters = { roles = {}, excludeRoles = {}, classes = {}, excludeClasses = {}, hidden = false }
-local singleFilters = { roles = {}, excludeRoles = {}, classes = {}, hidden = false }
+local filters = { roles = {}, excludeRoles = {}, classes = {}, excludeClasses = {} }
+local showGroups = true
+local showSingles = true
 
 local sidePanel
 local filterTab
-local groupWidgets = {}
-local singleWidgets = {}
+local filterWidgets = {}
 
 -------------------------------------------------------------------------------
 -- Filter Logic
@@ -64,8 +63,7 @@ local function HasActiveSection(f)
 end
 
 local function HasActiveFilters()
-    return HasActiveSection(groupFilters) or HasActiveSection(singleFilters)
-        or groupFilters.hidden or singleFilters.hidden
+    return HasActiveSection(filters) or not showGroups or not showSingles
 end
 
 local ROLE_TO_LFGROLE = { TANK = "tank", HEALER = "healer", DAMAGER = "dps" }
@@ -158,17 +156,17 @@ local function ShouldShowResult(resultID)
     local info = C_LFGList.GetSearchResultInfo(resultID)
     if not info then return false end
     local n = info.numMembers or 0
+
     if n > 1 then
-        if groupFilters.hidden then return false end
-        if not HasActiveSection(groupFilters) then return true end
-        return PassesRoleCheck(groupFilters, resultID, n)
-            and PassesClassCheck(groupFilters, resultID, n)
+        if not showGroups then return false end
     else
-        if singleFilters.hidden then return false end
-        if not HasActiveSection(singleFilters) then return true end
-        return PassesRoleCheck(singleFilters, resultID, n)
-            and PassesClassCheck(singleFilters, resultID, n)
+        if not showSingles then return false end
     end
+
+    if not HasActiveSection(filters) then return true end
+
+    return PassesRoleCheck(filters, resultID, n)
+        and PassesClassCheck(filters, resultID, n)
 end
 
 local function GetResultSortClass(resultID)
@@ -274,13 +272,6 @@ local function UpdateClassRowVisual(row, state)
     end
 end
 
-local function SetSectionDimmed(widgets, dimmed)
-    local alpha = dimmed and 0.3 or 1.0
-    if widgets.contentFrame then
-        widgets.contentFrame:SetAlpha(alpha)
-    end
-end
-
 local function RefreshSection(widgets, f)
     for _, btn in ipairs(widgets.roleButtons) do
         local state = "off"
@@ -300,7 +291,6 @@ local function RefreshSection(widgets, f)
         end
         UpdateClassRowVisual(row, state)
     end
-    SetSectionDimmed(widgets, f.hidden)
 end
 
 local function TriggerRefilter()
@@ -393,28 +383,34 @@ end
 
 local function CreateClassRow(parent, class, filterTable, excludeTable, refreshFn)
     local row = CreateFrame("Button", nil, parent)
-    row:SetSize(COLUMN_WIDTH, CLASS_ROW_HEIGHT)
+    row:SetSize(CONTENT_WIDTH, CLASS_ROW_HEIGHT)
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     row.filterKey = class
 
+    -- Row background (matches native LFG browse entry style)
+    local bg = row:CreateTexture(nil, "BACKGROUND")
+    bg:SetPoint("TOPLEFT", 3, -2)
+    bg:SetPoint("BOTTOMRIGHT", -3, 0)
+    bg:SetColorTexture(1, 1, 1, 0.04)
+
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(CLASS_ICON_SMALL, CLASS_ICON_SMALL)
-    icon:SetPoint("LEFT", row, "LEFT", 2, 0)
+    icon:SetPoint("LEFT", row, "LEFT", 8, 0)
     icon:SetTexture(CLASS_ICON_TEXTURE)
     local tc = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class]
     if tc then icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
     row.icon = icon
 
-    local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    label:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     local color = RAID_CLASS_COLORS[class]
     if color then label:SetTextColor(color.r, color.g, color.b) end
     label:SetText(CLASS_LABELS[class])
     row.label = label
 
     local check = row:CreateTexture(nil, "OVERLAY")
-    check:SetSize(14, 14)
-    check:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    check:SetSize(16, 16)
+    check:SetPoint("RIGHT", row, "RIGHT", -8, 0)
     check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
     check:Hide()
     row.check = check
@@ -422,15 +418,16 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
     -- Red X for exclude state
     if excludeTable then
         local exX = row:CreateTexture(nil, "OVERLAY")
-        exX:SetSize(12, 12)
-        exX:SetPoint("RIGHT", row, "RIGHT", -3, 0)
+        exX:SetSize(14, 14)
+        exX:SetPoint("RIGHT", row, "RIGHT", -8, 0)
         exX:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
         exX:Hide()
         row.excludeX = exX
     end
 
     local hl = row:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
+    hl:SetPoint("TOPLEFT", 3, -2)
+    hl:SetPoint("BOTTOMRIGHT", -3, 0)
     hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
     hl:SetBlendMode("ADD")
     hl:SetAlpha(0.3)
@@ -460,16 +457,13 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
 end
 
 -------------------------------------------------------------------------------
--- Section Builder (builds into a column anchored at xAnchor)
+-- Section Builder (single column)
 -------------------------------------------------------------------------------
 
-local function BuildFilterSection(parent, xAnchor, yStart, f, widgets)
-    local yOff = yStart
-
-    -- Content frame (gets dimmed when section is hidden)
+local function BuildFilterSection(parent, f, widgets)
     local content = CreateFrame("Frame", nil, parent)
-    content:SetPoint("TOPLEFT", parent, "TOPLEFT", xAnchor, yOff)
-    content:SetSize(COLUMN_WIDTH, 1)
+    content:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+    content:SetSize(CONTENT_WIDTH, 1)
     widgets.contentFrame = content
 
     local cYOff = 0
@@ -478,13 +472,13 @@ local function BuildFilterSection(parent, xAnchor, yStart, f, widgets)
 
     -- Roles label
     local rolesLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    rolesLabel:SetPoint("TOP", content, "TOPLEFT", COLUMN_WIDTH / 2, cYOff)
+    rolesLabel:SetPoint("TOP", content, "TOP", 0, cYOff)
     rolesLabel:SetText("Roles")
     rolesLabel:SetTextColor(0.7, 0.7, 0.7)
     cYOff = cYOff - rolesLabel:GetStringHeight() - 4
 
     local roleRowWidth = 3 * ICON_SIZE + 2 * ICON_GAP
-    local roleStartX = (COLUMN_WIDTH - roleRowWidth) / 2
+    local roleStartX = (CONTENT_WIDTH - roleRowWidth) / 2
     widgets.roleButtons = {}
     for i, role in ipairs(ROLE_ORDER) do
         local btn = CreateRoleButton(content, role, f.roles, f.excludeRoles, refreshFn)
@@ -494,13 +488,6 @@ local function BuildFilterSection(parent, xAnchor, yStart, f, widgets)
     end
     cYOff = cYOff - ICON_SIZE - 8
 
-    -- Classes label
-    local classesLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    classesLabel:SetPoint("TOP", content, "TOPLEFT", COLUMN_WIDTH / 2, cYOff)
-    classesLabel:SetText("Classes")
-    classesLabel:SetTextColor(0.7, 0.7, 0.7)
-    cYOff = cYOff - classesLabel:GetStringHeight() - 3
-
     widgets.classRows = {}
     for _, class in ipairs(CLASS_ORDER) do
         local row = CreateClassRow(content, class, f.classes, f.excludeClasses, refreshFn)
@@ -509,7 +496,7 @@ local function BuildFilterSection(parent, xAnchor, yStart, f, widgets)
         cYOff = cYOff - CLASS_ROW_HEIGHT
     end
 
-    return yOff + cYOff
+    return cYOff
 end
 
 -------------------------------------------------------------------------------
@@ -525,64 +512,62 @@ local function SetFilterTabHighlight(active)
     end
 end
 
-local function CreateShowCheckbox(parent, x, y, label, f, widgets)
-    local showBtn = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-    showBtn:SetSize(22, 22)
-    showBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    showBtn:SetChecked(true)
-    widgets.showCheckbox = showBtn
-
-    local header = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    header:SetPoint("LEFT", showBtn, "RIGHT", 2, 0)
-    header:SetText(label)
-    header:SetTextColor(1, 0.82, 0)
-
-    showBtn:SetScript("OnClick", function(self)
-        f.hidden = not self:GetChecked()
-        RefreshSection(widgets, f)
-        TriggerRefilter()
-    end)
-    showBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if self:GetChecked() then
-            GameTooltip:SetText("Showing " .. label:lower(), 0.5, 1, 0.5)
-            GameTooltip:AddLine("Uncheck to hide all " .. label:lower(), 0.7, 0.7, 0.7, true)
-        else
-            GameTooltip:SetText("Hiding " .. label:lower(), 1, 0.3, 0.3)
-            GameTooltip:AddLine("Check to show " .. label:lower(), 0.7, 0.7, 0.7, true)
-        end
-        GameTooltip:Show()
-    end)
-    showBtn:SetScript("OnLeave", GameTooltip_Hide)
-end
-
 local function CreateSidePanel()
     if sidePanel then return sidePanel end
 
-    sidePanel = CreateFrame("Frame", "LFGFilterPanel", LFGParentFrame)
+    sidePanel = CreateFrame("Frame", "LFGFilterPanel", LFGParentFrame, "PortraitFrameTemplate")
     sidePanel:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
     sidePanel:SetPoint("TOPLEFT", LFGParentFrame, "TOPRIGHT", -1, 0)
     sidePanel:SetFrameStrata("DIALOG")
 
     ---------------------------------------------------------------------------
-    -- Background textures (3-piece, identical to LFGBrowseFrame)
+    -- Hide PortraitFrameTemplate chrome (we only use it for the portrait)
     ---------------------------------------------------------------------------
 
-    -- Top piece
+    sidePanel.Bg:Hide()
+    sidePanel.TitleBg:Hide()
+    sidePanel.TopBorder:Hide()
+    sidePanel.TopRightCorner:Hide()
+    sidePanel.BotLeftCorner:Hide()
+    sidePanel.BotRightCorner:Hide()
+    sidePanel.BottomBorder:Hide()
+    sidePanel.LeftBorder:Hide()
+    sidePanel.RightBorder:Hide()
+    sidePanel.TopTileStreaks:Hide()
+    sidePanel.PortraitFrame:Hide()
+    sidePanel.TitleText:Hide()
+    sidePanel.CloseButton:Hide()
+    if sidePanel.NineSlice then sidePanel.NineSlice:Hide() end
+    -- Hide the unmasked portrait duplicate from PortraitFrameTemplateNoCloseButton
+    if sidePanel.portrait then sidePanel.portrait:Hide() end
+
+    ---------------------------------------------------------------------------
+    -- Portrait (circle-masked, from PortraitFrameTemplate's PortraitContainer)
+    ---------------------------------------------------------------------------
+
+    -- Reposition PortraitContainer so the portrait centers within the LFG ring
+    -- Ring center = TOPLEFT(12,-5) + half of 64x64 = (44,-37)
+    -- Portrait is 62x62 at (-5,7) within container, so container goes at (18,-13)
+    sidePanel.PortraitContainer:ClearAllPoints()
+    sidePanel.PortraitContainer:SetPoint("TOPLEFT", sidePanel, "TOPLEFT", 18, -13)
+    SetPortraitToTexture(sidePanel.PortraitContainer.portrait, "Interface\\FriendsFrame\\FriendsFrameScrollIcon")
+
+    -- LFG-style gold portrait ring (over the template's masked portrait)
+    local portraitBorder = sidePanel:CreateTexture(nil, "OVERLAY")
+    portraitBorder:SetSize(64, 64)
+    portraitBorder:SetPoint("TOPLEFT", 12, -5)
+    portraitBorder:SetTexture("Interface\\LFGFrame\\UI-LFG-PORTRAIT")
+
+    ---------------------------------------------------------------------------
+    -- Background textures (LFG-style, 2-piece)
+    ---------------------------------------------------------------------------
+
     local bgTop = sidePanel:CreateTexture(nil, "BACKGROUND", nil, -1)
-    bgTop:SetSize(512, 121)
-    bgTop:SetPoint("TOPLEFT", -1, 0)
-    bgTop:SetTexture("Interface\\LFGFrame\\UI-LFR-FRAME-MAIN")
-    bgTop:SetTexCoord(0, 1.0, 0, 0.236328125)
+    bgTop:SetSize(512, 256)
+    bgTop:SetPoint("TOPLEFT", 0, 0)
+    bgTop:SetTexture("Interface\\LFGFrame\\UI-LFG-FRAME")
+    bgTop:SetTexCoord(0, 1.0, 0, 0.5)
 
-    -- Middle piece
-    local bgMid = sidePanel:CreateTexture(nil, "BACKGROUND", nil, -1)
-    bgMid:SetSize(512, 135)
-    bgMid:SetPoint("TOPLEFT", 0, -121)
-    bgMid:SetTexture("Interface\\LFGFrame\\UI-LFG-FRAME")
-    bgMid:SetTexCoord(0, 1.0, 0.236328125, 0.5)
-
-    -- Bottom piece
     local bgBot = sidePanel:CreateTexture(nil, "BACKGROUND", nil, 1)
     bgBot:SetSize(512, 256)
     bgBot:SetPoint("TOPLEFT", 0, -256)
@@ -592,22 +577,8 @@ local function CreateSidePanel()
     -- Content area background
     local bgArt = sidePanel:CreateTexture(nil, "BACKGROUND", nil, 0)
     bgArt:SetSize(CONTENT_WIDTH, CONTENT_HEIGHT)
-    bgArt:SetPoint("TOPLEFT", CONTENT_LEFT, -129)
+    bgArt:SetPoint("TOPLEFT", CONTENT_LEFT, CONTENT_TOP - 1)
     bgArt:SetAtlas("groupfinder-background-classic")
-
-    ---------------------------------------------------------------------------
-    -- Portrait
-    ---------------------------------------------------------------------------
-
-    local portrait = CreateFrame("Frame", "LFGFilterPanelPortrait", sidePanel, "LFGEyeTemplate")
-    portrait:SetSize(64, 64)
-    portrait:SetPoint("TOPLEFT", 9, -5)
-    LowerFrameLevel(portrait)
-
-    local portraitIcon = portrait:CreateTexture(nil, "BACKGROUND")
-    portraitIcon:SetSize(64, 64)
-    portraitIcon:SetPoint("TOPLEFT", 3, 0)
-    portraitIcon:SetTexture("Interface\\LFGFrame\\UI-LFG-PORTRAIT")
 
     ---------------------------------------------------------------------------
     -- Title
@@ -629,36 +600,7 @@ local function CreateSidePanel()
     end)
 
     ---------------------------------------------------------------------------
-    -- Show/Hide checkboxes (in dropdown area, ~y=-92)
-    ---------------------------------------------------------------------------
-
-    CreateShowCheckbox(sidePanel, CONTENT_LEFT, -92, "Groups (2+)", groupFilters, groupWidgets)
-    CreateShowCheckbox(sidePanel, CONTENT_LEFT + COLUMN_WIDTH + COLUMN_GAP, -92, "Singles (1)", singleFilters, singleWidgets)
-
-    ---------------------------------------------------------------------------
-    -- Filter content area
-    ---------------------------------------------------------------------------
-
-    local contentContainer = CreateFrame("Frame", nil, sidePanel)
-    contentContainer:SetPoint("TOPLEFT", sidePanel, "TOPLEFT", CONTENT_LEFT, CONTENT_TOP)
-    contentContainer:SetSize(CONTENT_WIDTH, CONTENT_HEIGHT)
-
-    local leftX = 0
-    local rightX = COLUMN_WIDTH + COLUMN_GAP
-
-    local leftBottom = BuildFilterSection(contentContainer, leftX, 0, groupFilters, groupWidgets)
-    local rightBottom = BuildFilterSection(contentContainer, rightX, 0, singleFilters, singleWidgets)
-
-    -- Vertical separator between columns
-    local contentBottom = math.min(leftBottom, rightBottom)
-    local vsep = contentContainer:CreateTexture(nil, "ARTWORK")
-    vsep:SetWidth(1)
-    vsep:SetPoint("TOP", contentContainer, "TOPLEFT", COLUMN_WIDTH + COLUMN_GAP / 2, 0)
-    vsep:SetPoint("BOTTOM", contentContainer, "TOPLEFT", COLUMN_WIDTH + COLUMN_GAP / 2, contentBottom)
-    vsep:SetColorTexture(0.4, 0.4, 0.4, 0.6)
-
-    ---------------------------------------------------------------------------
-    -- Info button (top-right, hover tooltip explains controls)
+    -- Info button (hover tooltip explains controls)
     ---------------------------------------------------------------------------
 
     local infoBtn = CreateFrame("Button", nil, sidePanel)
@@ -682,6 +624,42 @@ local function CreateSidePanel()
         infoIcon:SetAlpha(0.8)
         GameTooltip:Hide()
     end)
+
+    ---------------------------------------------------------------------------
+    -- Gear button (native DropdownButton with SetupMenu, same as LFG gear)
+    ---------------------------------------------------------------------------
+
+    local gearBtn = CreateFrame("DropdownButton", nil, sidePanel, "LFGOptionsButton")
+    gearBtn:SetPoint("RIGHT", infoBtn, "LEFT", -4, 0)
+    gearBtn:SetupMenu(function(dropdown, rootDescription)
+        rootDescription:SetTag("MENU_LFG_FILTER_OPTIONS")
+
+        rootDescription:CreateCheckbox("Show Groups (2+)",
+            function() return showGroups end,
+            function()
+                showGroups = not showGroups
+                TriggerRefilter()
+            end
+        )
+
+        rootDescription:CreateCheckbox("Show Singles (1)",
+            function() return showSingles end,
+            function()
+                showSingles = not showSingles
+                TriggerRefilter()
+            end
+        )
+    end)
+
+    ---------------------------------------------------------------------------
+    -- Filter content area (single column, centered)
+    ---------------------------------------------------------------------------
+
+    local contentContainer = CreateFrame("Frame", nil, sidePanel)
+    contentContainer:SetPoint("TOPLEFT", sidePanel, "TOPLEFT", CONTENT_LEFT, CONTENT_TOP)
+    contentContainer:SetSize(CONTENT_WIDTH, CONTENT_HEIGHT)
+
+    BuildFilterSection(contentContainer, filters, filterWidgets)
 
     return sidePanel
 end
