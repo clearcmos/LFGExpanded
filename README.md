@@ -1,4 +1,4 @@
-# LFGExpanded
+# LFG Expanded
 
 **LFG Expanded** adds a filter side panel to the LFG Browse frame, letting you filter search results by role and class.
 
