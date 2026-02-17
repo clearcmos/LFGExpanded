@@ -15,7 +15,7 @@
 - **Auto-open**: Panel appears automatically when Dungeons or Raids category is selected; respects manual close until next category selection
 - **Role filters**: Tank, Healer, DPS toggle icons with include/exclude (disabled until a search is performed)
 - **Class filters**: All 9 TBC classes with class-colored labels, include/exclude
-- **Per-class role breakdown**: Each class row shows role counts with native Group Browser icons
+- **Per-class role breakdown**: Each class row shows role counts with native Group Browser icons (counts reflect only visible/filtered listings)
 - **Class notes tooltips**: Hover info icon to see listing notes from leaders of that class, with class-colored names and lazy name resolution
 - **Gear dropdown menu**: "Show" header with Groups (2+), Singles (1), 70 Only options
 - Smart sorting when filters active: groups first, singles sorted by class

@@ -249,53 +249,57 @@ local function ComputeClassData(results)
         local info = C_LFGList.GetSearchResultInfo(resultID)
         if info then
             local numMembers = info.numMembers or 0
-            local seenClasses = {}
 
-            -- Collect per-class data: which classes appear, and which roles per class (per listing)
-            local classRolesInListing = {}  -- classRolesInListing["HUNTER"] = { TANK=true, DAMAGER=true }
-            for i = 1, numMembers do
-                local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
-                if memberInfo and memberInfo.classFilename then
-                    local class = memberInfo.classFilename
-                    if not seenClasses[class] then
-                        seenClasses[class] = true
-                        classCounts[class] = (classCounts[class] or 0) + 1
-                        classRolesInListing[class] = {}
-                    end
-                    local hasRole = false
-                    if memberInfo.lfgRoles then
-                        for lfgKey, filterRole in pairs(LFGROLE_TO_FILTERROLE) do
-                            if memberInfo.lfgRoles[lfgKey] then
-                                classRolesInListing[class][filterRole] = true
-                                hasRole = true
+            -- Only count listings that pass all active filters
+            if ShouldShowResult(resultID) then
+                local seenClasses = {}
+
+                -- Collect per-class data: which classes appear, and which roles per class (per listing)
+                local classRolesInListing = {}  -- classRolesInListing["HUNTER"] = { TANK=true, DAMAGER=true }
+                for i = 1, numMembers do
+                    local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
+                    if memberInfo and memberInfo.classFilename then
+                        local class = memberInfo.classFilename
+                        if not seenClasses[class] then
+                            seenClasses[class] = true
+                            classCounts[class] = (classCounts[class] or 0) + 1
+                            classRolesInListing[class] = {}
+                        end
+                        local hasRole = false
+                        if memberInfo.lfgRoles then
+                            for lfgKey, filterRole in pairs(LFGROLE_TO_FILTERROLE) do
+                                if memberInfo.lfgRoles[lfgKey] then
+                                    classRolesInListing[class][filterRole] = true
+                                    hasRole = true
+                                end
                             end
                         end
+                        -- Fallback to assignedRole for group members without lfgRoles
+                        if not hasRole and memberInfo.assignedRole and memberInfo.assignedRole ~= "" and memberInfo.assignedRole ~= "NONE" then
+                            classRolesInListing[class][memberInfo.assignedRole] = true
+                        end
                     end
-                    -- Fallback to assignedRole for group members without lfgRoles
-                    if not hasRole and memberInfo.assignedRole and memberInfo.assignedRole ~= "" and memberInfo.assignedRole ~= "NONE" then
-                        classRolesInListing[class][memberInfo.assignedRole] = true
+                end
+                -- Tally roles per class (once per listing, not per member)
+                for class, roles in pairs(classRolesInListing) do
+                    if not classRoleCounts[class] then
+                        classRoleCounts[class] = { TANK = 0, HEALER = 0, DAMAGER = 0 }
+                    end
+                    for filterRole in pairs(roles) do
+                        classRoleCounts[class][filterRole] = classRoleCounts[class][filterRole] + 1
                     end
                 end
-            end
-            -- Tally roles per class (once per listing, not per member)
-            for class, roles in pairs(classRolesInListing) do
-                if not classRoleCounts[class] then
-                    classRoleCounts[class] = { TANK = 0, HEALER = 0, DAMAGER = 0 }
-                end
-                for filterRole in pairs(roles) do
-                    classRoleCounts[class][filterRole] = classRoleCounts[class][filterRole] + 1
-                end
-            end
 
-            local comment = info.comment
-            if comment and comment ~= "" then
-                local leaderInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
-                local leaderClass = leaderInfo and leaderInfo.classFilename
-                if leaderClass then
-                    if not classNotes[leaderClass] then
-                        classNotes[leaderClass] = {}
+                local comment = info.comment
+                if comment and comment ~= "" then
+                    local leaderInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
+                    local leaderClass = leaderInfo and leaderInfo.classFilename
+                    if leaderClass then
+                        if not classNotes[leaderClass] then
+                            classNotes[leaderClass] = {}
+                        end
+                        classNotes[leaderClass][#classNotes[leaderClass] + 1] = { resultID = resultID, comment = comment }
                     end
-                    classNotes[leaderClass][#classNotes[leaderClass] + 1] = { resultID = resultID, comment = comment }
                 end
             end
         end
