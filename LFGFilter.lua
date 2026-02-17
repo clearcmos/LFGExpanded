@@ -49,6 +49,7 @@ local filterTab
 local filterWidgets = {}
 
 local classCounts = {}
+local classRoleCounts = {}  -- classRoleCounts["DRUID"] = { TANK=0, HEALER=0, DAMAGER=0 }
 local classNotes = {}
 
 -------------------------------------------------------------------------------
@@ -229,8 +230,11 @@ local function FilterResults(browseFrame)
     end
 end
 
+local LFGROLE_TO_FILTERROLE = { tank = "TANK", healer = "HEALER", dps = "DAMAGER" }
+
 local function ComputeClassData(results)
     wipe(classCounts)
+    wipe(classRoleCounts)
     wipe(classNotes)
     if not results then return end
 
@@ -240,6 +244,8 @@ local function ComputeClassData(results)
             local numMembers = info.numMembers or 0
             local seenClasses = {}
 
+            -- Collect per-class data: which classes appear, and which roles per class (per listing)
+            local classRolesInListing = {}  -- classRolesInListing["HUNTER"] = { TANK=true, DAMAGER=true }
             for i = 1, numMembers do
                 local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
                 if memberInfo and memberInfo.classFilename then
@@ -247,7 +253,30 @@ local function ComputeClassData(results)
                     if not seenClasses[class] then
                         seenClasses[class] = true
                         classCounts[class] = (classCounts[class] or 0) + 1
+                        classRolesInListing[class] = {}
                     end
+                    local hasRole = false
+                    if memberInfo.lfgRoles then
+                        for lfgKey, filterRole in pairs(LFGROLE_TO_FILTERROLE) do
+                            if memberInfo.lfgRoles[lfgKey] then
+                                classRolesInListing[class][filterRole] = true
+                                hasRole = true
+                            end
+                        end
+                    end
+                    -- Fallback to assignedRole for group members without lfgRoles
+                    if not hasRole and memberInfo.assignedRole and memberInfo.assignedRole ~= "" and memberInfo.assignedRole ~= "NONE" then
+                        classRolesInListing[class][memberInfo.assignedRole] = true
+                    end
+                end
+            end
+            -- Tally roles per class (once per listing, not per member)
+            for class, roles in pairs(classRolesInListing) do
+                if not classRoleCounts[class] then
+                    classRoleCounts[class] = { TANK = 0, HEALER = 0, DAMAGER = 0 }
+                end
+                for filterRole in pairs(roles) do
+                    classRoleCounts[class][filterRole] = classRoleCounts[class][filterRole] + 1
                 end
             end
 
@@ -359,7 +388,8 @@ end
 local function UpdateClassCounts()
     if not filterWidgets.classRows then return end
     for _, row in ipairs(filterWidgets.classRows) do
-        local count = classCounts[row.filterKey] or 0
+        local cls = row.filterKey
+        local count = classCounts[cls] or 0
         row.countLabel:SetText(count)
         if count > 0 then
             row.countLabel:SetAlpha(1.0)
@@ -367,6 +397,22 @@ local function UpdateClassCounts()
         else
             row.countLabel:SetAlpha(0.3)
             row.infoBtn:SetAlpha(0.3)
+        end
+        -- Update role breakdown
+        local rc = classRoleCounts[cls]
+        for _, role in ipairs(ROLE_ORDER) do
+            local rw = row.roleWidgets[role]
+            local n = rc and rc[role] or 0
+            rw.count:SetText(n)
+            if n > 0 then
+                rw.icon:SetDesaturated(false)
+                rw.icon:SetAlpha(0.9)
+                rw.count:SetAlpha(0.9)
+            else
+                rw.icon:SetDesaturated(true)
+                rw.icon:SetAlpha(0.3)
+                rw.count:SetAlpha(0.3)
+            end
         end
     end
 end
@@ -514,9 +560,36 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
     label:SetText(CLASS_LABELS[class])
     row.label = label
 
+    -- Role breakdown icons (native large atlas, 18x18, same as Group Browser)
+    local LARGE_ROLE_ATLAS = {
+        TANK = "groupfinder-icon-role-large-tank",
+        HEALER = "groupfinder-icon-role-large-heal",
+        DAMAGER = "groupfinder-icon-role-large-dps",
+    }
+    local ROLE_START_X = 120
+    local ROLE_SPACING = 36
+    local roleWidgets = {}
+    for idx, role in ipairs(ROLE_ORDER) do
+        local ri = row:CreateTexture(nil, "ARTWORK")
+        ri:SetSize(18, 18)
+        ri:SetAtlas(LARGE_ROLE_ATLAS[role], false)
+        ri:SetDesaturated(true)
+        ri:SetAlpha(0.3)
+        ri:SetPoint("LEFT", row, "LEFT", ROLE_START_X + (idx - 1) * ROLE_SPACING, 0)
+
+        local rc = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        rc:SetText("0")
+        rc:SetTextColor(0.7, 0.7, 0.7)
+        rc:SetAlpha(0.3)
+        rc:SetPoint("LEFT", ri, "RIGHT", 2, 0)
+
+        roleWidgets[role] = { icon = ri, count = rc }
+    end
+    row.roleWidgets = roleWidgets
+
     -- Count label (number of listings with this class)
     local countLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    countLabel:SetPoint("RIGHT", row, "RIGHT", -170, 0)
+    countLabel:SetPoint("RIGHT", row, "RIGHT", -55, 0)
     countLabel:SetJustifyH("RIGHT")
     countLabel:SetText("0")
     countLabel:SetTextColor(0.7, 0.7, 0.7)
@@ -526,7 +599,7 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
     -- Info button (hover shows notes from listings of this class)
     local infoFrame = CreateFrame("Frame", nil, row)
     infoFrame:SetSize(24, 24)
-    infoFrame:SetPoint("LEFT", countLabel, "RIGHT", 6, 0)
+    infoFrame:SetPoint("LEFT", countLabel, "RIGHT", 4, 0)
     infoFrame:EnableMouse(true)
 
     local infoIcon = infoFrame:CreateTexture(nil, "ARTWORK")
@@ -986,15 +1059,15 @@ local function Initialize()
 
     hooksecurefunc(LFGBrowseFrame, "UpdateResultList", function(self)
         local show = HasActivitySelected()
+        if show then
+            ComputeClassData(self.results)
+            UpdateClassCounts()
+        end
         if show and HasActiveFilters() then
             local pct = SaveScroll()
             FilterResults(self)
             self:UpdateResults()
             RestoreScroll(pct)
-        end
-        if show then
-            ComputeClassData(self.results)
-            UpdateClassCounts()
         end
         UpdateContentVisibility(show)
     end)
