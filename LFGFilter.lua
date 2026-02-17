@@ -282,21 +282,13 @@ local function ComputeClassData(results)
 
             local comment = info.comment
             if comment and comment ~= "" then
-                local leaderName = info.leaderName
-                if not leaderName then
-                    local mi = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
-                    leaderName = mi and mi.name
-                end
-                if not leaderName then
-                    local li = C_LFGList.GetSearchResultLeaderInfo(resultID)
-                    leaderName = li and li.name
-                end
-                leaderName = leaderName or "Unknown"
-                for class in pairs(seenClasses) do
-                    if not classNotes[class] then
-                        classNotes[class] = {}
+                local leaderInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
+                local leaderClass = leaderInfo and leaderInfo.classFilename
+                if leaderClass then
+                    if not classNotes[leaderClass] then
+                        classNotes[leaderClass] = {}
                     end
-                    classNotes[class][#classNotes[class] + 1] = { name = leaderName, comment = comment }
+                    classNotes[leaderClass][#classNotes[leaderClass] + 1] = { resultID = resultID, comment = comment }
                 end
             end
         end
@@ -611,19 +603,26 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
         local cls = row.filterKey
         local notes = classNotes[cls]
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        local clr = RAID_CLASS_COLORS[cls]
-        if clr then
-            GameTooltip:SetText(CLASS_LABELS[cls] .. " Notes", clr.r, clr.g, clr.b)
-        else
-            GameTooltip:SetText(CLASS_LABELS[cls] .. " Notes", 1, 1, 1)
-        end
+        GameTooltip:SetText(CLASS_LABELS[cls] .. " Notes", 1, 1, 1)
         if notes and #notes > 0 then
             local sorted = {}
             for i, entry in ipairs(notes) do
-                sorted[i] = entry
+                local rid = entry.resultID
+                local name
+                local ri = C_LFGList.GetSearchResultInfo(rid)
+                if ri then name = ri.leaderName end
+                if not name then
+                    local mi = C_LFGList.GetSearchResultPlayerInfo(rid, 1)
+                    name = mi and mi.name
+                end
+                if not name then
+                    local li = C_LFGList.GetSearchResultLeaderInfo(rid)
+                    name = li and li.name
+                end
+                sorted[#sorted + 1] = { name = name or "Unknown", comment = entry.comment }
             end
             table.sort(sorted, function(a, b)
-                return (a.name or ""):lower() < (b.name or ""):lower()
+                return a.name:lower() < b.name:lower()
             end)
             for i, entry in ipairs(sorted) do
                 if i > 20 then
@@ -633,7 +632,12 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
                 if i > 1 then
                     GameTooltip:AddLine(" ", 1, 1, 1)
                 end
-                GameTooltip:AddLine(entry.name, 0.6, 0.8, 1)
+                local clr2 = RAID_CLASS_COLORS[cls]
+                if clr2 then
+                    GameTooltip:AddLine(entry.name, clr2.r, clr2.g, clr2.b)
+                else
+                    GameTooltip:AddLine(entry.name, 0.6, 0.8, 1)
+                end
                 GameTooltip:AddLine(entry.comment, 1, 0.82, 0, true)
             end
         else
@@ -834,7 +838,7 @@ local function CreateSidePanel()
 
     local title = sidePanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", 0, -18)
-    title:SetText("LFG Filter")
+    title:SetText("Filters")
 
     ---------------------------------------------------------------------------
     -- Close button
