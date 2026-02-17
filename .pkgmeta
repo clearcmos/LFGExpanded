@@ -1,4 +1,4 @@
-package-as: LFGFilter
+package-as: LFGExpanded
 
 manual-changelog:
   filename: CHANGELOG.md

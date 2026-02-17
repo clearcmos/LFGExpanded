@@ -1,9 +1,9 @@
 ## Interface: 20505
-## Title: LFGFilter
+## Title: LFG Expanded
 ## Notes: Filter LFG List results by class and role
 ## Author: clearcmos
 ## Version: 1.0.0
 ## DefaultState: enabled
 ## AllowLoadGameType: tbc
 
-LFGFilter.lua
+LFGExpanded.lua

@@ -416,6 +416,13 @@ local function UpdateContentVisibility(show)
         for _, row in ipairs(filterWidgets.classRows) do
             row:Show()
         end
+        if filterWidgets.roleButtons then
+            for _, btn in ipairs(filterWidgets.roleButtons) do
+                btn:Enable()
+                btn.icon:SetDesaturated(false)
+                btn.icon:SetAlpha(1.0)
+            end
+        end
         if filterWidgets.resetBtn then
             if HasActiveFilters() then
                 filterWidgets.resetBtn:Enable()
@@ -427,6 +434,13 @@ local function UpdateContentVisibility(show)
         if filterWidgets.warningText then filterWidgets.warningText:Show() end
         for _, row in ipairs(filterWidgets.classRows) do
             row:Hide()
+        end
+        if filterWidgets.roleButtons then
+            for _, btn in ipairs(filterWidgets.roleButtons) do
+                btn:Disable()
+                btn.icon:SetDesaturated(true)
+                btn.icon:SetAlpha(0.4)
+            end
         end
         if filterWidgets.resetBtn then filterWidgets.resetBtn:Disable() end
     end
@@ -721,6 +735,9 @@ local function BuildFilterSection(parent, f, widgets)
         local btn = CreateRoleButton(content, role, f.roles, f.excludeRoles, refreshFn)
         local xOff = roleStartX + (i - 1) * (ROLE_BUTTON_SIZE + ROLE_BUTTON_GAP)
         btn:SetPoint("TOPLEFT", content, "TOPLEFT", xOff, cYOff)
+        btn:Disable()
+        btn.icon:SetDesaturated(true)
+        btn.icon:SetAlpha(0.4)
         widgets.roleButtons[#widgets.roleButtons + 1] = btn
     end
 
@@ -765,7 +782,7 @@ end
 local function CreateSidePanel()
     if sidePanel then return sidePanel end
 
-    sidePanel = CreateFrame("Frame", "LFGFilterPanel", LFGParentFrame, "PortraitFrameTemplate")
+    sidePanel = CreateFrame("Frame", "LFGExpandedPanel", LFGParentFrame, "PortraitFrameTemplate")
     sidePanel:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
     sidePanel:SetPoint("TOPLEFT", LFGParentFrame, "TOPRIGHT", -1, 0)
     sidePanel:SetFrameStrata("DIALOG")
