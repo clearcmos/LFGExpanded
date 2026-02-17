@@ -42,6 +42,7 @@ local CONTENT_HEIGHT = 347
 local filters = { roles = {}, excludeRoles = {}, classes = {}, excludeClasses = {} }
 local showGroups = true
 local showSingles = true
+local show70Only = false
 
 local sidePanel
 local filterTab
@@ -61,7 +62,7 @@ local function HasActiveSection(f)
 end
 
 local function HasActiveFilters()
-    return HasActiveSection(filters) or not showGroups or not showSingles
+    return HasActiveSection(filters) or not showGroups or not showSingles or show70Only
 end
 
 local function HasActivitySelected()
@@ -172,6 +173,13 @@ local function ShouldShowResult(resultID)
         if not showSingles then return false end
     end
 
+    if show70Only then
+        for i = 1, n do
+            local mi = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
+            if mi and mi.level and mi.level < 70 then return false end
+        end
+    end
+
     if not HasActiveSection(filters) then return true end
 
     return PassesRoleCheck(filters, resultID, n)
@@ -245,11 +253,21 @@ local function ComputeClassData(results)
 
             local comment = info.comment
             if comment and comment ~= "" then
+                local leaderName = info.leaderName
+                if not leaderName then
+                    local mi = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
+                    leaderName = mi and mi.name
+                end
+                if not leaderName then
+                    local li = C_LFGList.GetSearchResultLeaderInfo(resultID)
+                    leaderName = li and li.name
+                end
+                leaderName = leaderName or "Unknown"
                 for class in pairs(seenClasses) do
                     if not classNotes[class] then
                         classNotes[class] = {}
                     end
-                    classNotes[class][#classNotes[class] + 1] = comment
+                    classNotes[class][#classNotes[class] + 1] = { name = leaderName, comment = comment }
                 end
             end
         end
@@ -389,6 +407,7 @@ end
 local function CreateRoleButton(parent, role, filterTable, excludeTable, refreshFn)
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(ROLE_BUTTON_SIZE, ROLE_BUTTON_SIZE)
+    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn.filterKey = role
 
     -- Colored background ring (80x80, centered behind 48x48 button)
@@ -431,19 +450,23 @@ local function CreateRoleButton(parent, role, filterTable, excludeTable, refresh
     hl:SetBlendMode("ADD")
     hl:SetAlpha(0.3)
 
-    -- Click cycles: off → include → exclude → off
-    btn:SetScript("OnClick", function(self)
+    -- Left-click: toggle off/include; Right-click: toggle off/exclude
+    btn:SetScript("OnClick", function(self, mouseButton)
         local key = self.filterKey
-        if filterTable[key] then
-            -- include → exclude
+        if mouseButton == "RightButton" then
             filterTable[key] = nil
-            excludeTable[key] = true
-        elseif excludeTable[key] then
-            -- exclude → off
-            excludeTable[key] = nil
+            if excludeTable[key] then
+                excludeTable[key] = nil
+            else
+                excludeTable[key] = true
+            end
         else
-            -- off → include
-            filterTable[key] = true
+            excludeTable[key] = nil
+            if filterTable[key] then
+                filterTable[key] = nil
+            else
+                filterTable[key] = true
+            end
         end
         refreshFn()
         TriggerRefilter()
@@ -451,7 +474,7 @@ local function CreateRoleButton(parent, role, filterTable, excludeTable, refresh
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(ROLE_LABELS[role], 1, 1, 1)
-        GameTooltip:AddLine("Click to cycle: off / require / exclude", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Left-click: require | Right-click: exclude", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
     btn:SetScript("OnLeave", GameTooltip_Hide)
@@ -522,12 +545,23 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
             GameTooltip:SetText(CLASS_LABELS[cls] .. " Notes", 1, 1, 1)
         end
         if notes and #notes > 0 then
-            for i, note in ipairs(notes) do
+            local sorted = {}
+            for i, entry in ipairs(notes) do
+                sorted[i] = entry
+            end
+            table.sort(sorted, function(a, b)
+                return (a.name or ""):lower() < (b.name or ""):lower()
+            end)
+            for i, entry in ipairs(sorted) do
                 if i > 20 then
-                    GameTooltip:AddLine("... and " .. (#notes - 20) .. " more", 0.5, 0.5, 0.5)
+                    GameTooltip:AddLine("... and " .. (#sorted - 20) .. " more", 0.5, 0.5, 0.5)
                     break
                 end
-                GameTooltip:AddLine(note, 1, 0.82, 0, true)
+                if i > 1 then
+                    GameTooltip:AddLine(" ", 1, 1, 1)
+                end
+                GameTooltip:AddLine(entry.name, 0.6, 0.8, 1)
+                GameTooltip:AddLine(entry.comment, 1, 0.82, 0, true)
             end
         else
             GameTooltip:AddLine("No notes in current listings", 0.5, 0.5, 0.5)
@@ -790,6 +824,14 @@ local function CreateSidePanel()
                 TriggerRefilter()
             end
         )
+
+        rootDescription:CreateCheckbox("Show 70 Only",
+            function() return show70Only end,
+            function()
+                show70Only = not show70Only
+                TriggerRefilter()
+            end
+        )
     end)
 
     ---------------------------------------------------------------------------
@@ -829,6 +871,7 @@ local function CreateSidePanel()
         wipe(filters.excludeClasses)
         showGroups = true
         showSingles = true
+        show70Only = false
         RefreshSection(filterWidgets, filters)
         TriggerRefilter()
     end)
