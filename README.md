@@ -8,13 +8,15 @@ Built specifically for **TBC Classic Anniversary**.
 
 ## Features
 
+- **Auto-open** - Filter panel appears automatically when Dungeons or Raids is selected
 - **Role filters** - Tank, Healer, DPS toggle icons with include/exclude
 - **Class filters** - All 9 TBC classes with class-colored labels, include/exclude
+- **OR across dimensions** - Including a role and a class shows listings matching either (e.g., Healer + Hunter shows all healers and all hunters)
 - **Per-class role breakdown** - Each class row shows how many listings have that class as Tank, Healer, or DPS with native Group Browser icons
 - **Class notes tooltips** - Hover the info icon on any class to see listing notes from leaders of that class, with class-colored names
 - **Include/Exclude** - Left-click to require, right-click to exclude, click again to clear
-- **Smart exclusion** - Groups: reject if excluded role/class is present. Singles: reject only if all listed roles are excluded (a healer+dps passes a healer exclusion)
-- **Gear menu options** - Show/hide groups, singles, or level 70 only via gear dropdown
+- **Smart exclusion** - Exclusions always override includes. Groups: reject if excluded role/class is present. Singles: reject only if all listed roles are excluded
+- **Gear menu options** - Show/hide groups, singles, and level 70 only via gear dropdown
 - **Smart sorting** - Groups shown first, singles sorted by class when filters active
 - **Search Again & Reset** - Buttons to re-search or clear all filters
 - **Native LFG styling** - Uses the same portrait frame, background textures, and tab style as the built-in Group Finder
@@ -23,14 +25,14 @@ Built specifically for **TBC Classic Anniversary**.
 
 ## Usage
 
-Open the LFG Browse window and click the **Filters** tab. Select at least one dungeon or raid and search to populate the filter panel.
+Open the LFG Browse window and select Dungeons or Raids. The filter panel appears automatically. Select at least one activity and click **Get Started** to populate the filters.
 
 ### Controls
 
 - **Left-click** a role or class to include it (must have)
 - **Right-click** a role or class to exclude it (must NOT have)
 - Click again to clear the filter
-- **Gear icon** - Toggle show groups, show singles, or level 70 only
+- **Gear icon** - Toggle show groups, show singles, and level 70 only
 
 ---
 
@@ -38,7 +40,7 @@ Open the LFG Browse window and click the **Filters** tab. Select at least one du
 
 - Role filters: Tank, Healer, DPS
 - Class filters: Druid, Hunter, Mage, Paladin, Priest, Rogue, Shaman, Warlock, Warrior
-- Show Groups (2+) / Show Singles (1) / Show 70 Only via gear dropdown
+- Groups (2+) / Singles (1) / 70 Only via gear dropdown
 - Search Again and Reset Filters buttons
 
 ---

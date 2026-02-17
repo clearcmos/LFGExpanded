@@ -47,6 +47,7 @@ local show70Only = false
 local sidePanel
 local filterTab
 local filterWidgets = {}
+local panelDismissed = false  -- true once user manually closes panel; resets on new category selection
 
 local classCounts = {}
 local classRoleCounts = {}  -- classRoleCounts["DRUID"] = { TANK=0, HEALER=0, DAMAGER=0 }
@@ -79,32 +80,58 @@ end
 
 local ROLE_TO_LFGROLE = { TANK = "tank", HEALER = "healer", DAMAGER = "dps" }
 
-local function PassesRoleCheck(f, resultID, numMembers)
-    -- For singles, use lfgRoles from player info (member counts are unreliable)
-    if numMembers == 1 then
-        local hasInclude = next(f.roles) ~= nil
-        local hasExclude = f.excludeRoles and next(f.excludeRoles) ~= nil
-        if not hasInclude and not hasExclude then return true end
+-- Exclusion checks (AND logic: must pass all)
 
+local function PassesRoleExclusion(f, resultID, numMembers)
+    local hasExclude = f.excludeRoles and next(f.excludeRoles) ~= nil
+    if not hasExclude then return true end
+
+    if numMembers == 1 then
+        local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
+        if not memberInfo or not memberInfo.lfgRoles then return true end
+        local lfg = memberInfo.lfgRoles
+        -- Reject only if ALL of the player's listed roles are excluded
+        local hasNonExcludedRole = false
+        for filterRole, lfgKey in pairs(ROLE_TO_LFGROLE) do
+            if lfg[lfgKey] and not f.excludeRoles[filterRole] then
+                hasNonExcludedRole = true
+                break
+            end
+        end
+        return hasNonExcludedRole
+    end
+
+    local mc = C_LFGList.GetSearchResultMemberCounts(resultID)
+    if not mc then return true end
+    for role in pairs(f.excludeRoles) do
+        if mc[role] and mc[role] > 0 then return false end
+    end
+    return true
+end
+
+local function PassesClassExclusion(f, resultID, numMembers)
+    local hasExclude = f.excludeClasses and next(f.excludeClasses) ~= nil
+    if not hasExclude then return true end
+
+    for i = 1, numMembers do
+        local info = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
+        if info and info.classFilename and f.excludeClasses[info.classFilename] then
+            return false
+        end
+    end
+    return true
+end
+
+-- Include checks (OR across dimensions: matches role OR class)
+
+local function MatchesRoleInclude(f, resultID, numMembers)
+    local hasInclude = next(f.roles) ~= nil
+    if not hasInclude then return false end
+
+    if numMembers == 1 then
         local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
         if not memberInfo or not memberInfo.lfgRoles then return false end
         local lfg = memberInfo.lfgRoles
-
-        -- Exclusion: reject if ALL of the player's listed roles are excluded
-        -- (a player listing healer+dps passes a healer exclusion because dps isn't excluded)
-        if hasExclude then
-            local hasNonExcludedRole = false
-            for filterRole, lfgKey in pairs(ROLE_TO_LFGROLE) do
-                if lfg[lfgKey] and not f.excludeRoles[filterRole] then
-                    hasNonExcludedRole = true
-                    break
-                end
-            end
-            if not hasNonExcludedRole then return false end
-        end
-
-        if not hasInclude then return true end
-
         for role in pairs(f.roles) do
             local key = ROLE_TO_LFGROLE[role]
             if key and lfg[key] then return true end
@@ -112,53 +139,23 @@ local function PassesRoleCheck(f, resultID, numMembers)
         return false
     end
 
-    -- For groups, member counts are fine
-    local hasInclude = next(f.roles) ~= nil
-    local hasExclude = f.excludeRoles and next(f.excludeRoles) ~= nil
-    if not hasInclude and not hasExclude then return true end
-
     local mc = C_LFGList.GetSearchResultMemberCounts(resultID)
     if not mc then return false end
-
-    -- Excluded roles must NOT be present
-    if hasExclude then
-        for role in pairs(f.excludeRoles) do
-            if mc[role] and mc[role] > 0 then return false end
-        end
-    end
-
-    -- If no include filters, exclusion-only is enough
-    if not hasInclude then return true end
-
-    -- At least one included role must be present
     for role in pairs(f.roles) do
         if mc[role] and mc[role] > 0 then return true end
     end
     return false
 end
 
-local function PassesClassCheck(f, resultID, numMembers)
+local function MatchesClassInclude(f, resultID, numMembers)
     local hasInclude = next(f.classes) ~= nil
-    local hasExclude = f.excludeClasses and next(f.excludeClasses) ~= nil
-    if not hasInclude and not hasExclude then return true end
+    if not hasInclude then return false end
 
-    local found = {}
     for i = 1, numMembers do
         local info = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
-        if info and info.classFilename then found[info.classFilename] = true end
-    end
-
-    -- Excluded classes must NOT be present
-    if hasExclude then
-        for class in pairs(f.excludeClasses) do
-            if found[class] then return false end
+        if info and info.classFilename and f.classes[info.classFilename] then
+            return true
         end
-    end
-
-    if not hasInclude then return true end
-
-    for class in pairs(f.classes) do
-        if found[class] then return true end
     end
     return false
 end
@@ -183,8 +180,18 @@ local function ShouldShowResult(resultID)
 
     if not HasActiveSection(filters) then return true end
 
-    return PassesRoleCheck(filters, resultID, n)
-        and PassesClassCheck(filters, resultID, n)
+    -- Exclusions are AND: must pass all exclusion checks
+    if not PassesRoleExclusion(filters, resultID, n) then return false end
+    if not PassesClassExclusion(filters, resultID, n) then return false end
+
+    -- Includes are OR across dimensions: match any included role OR any included class
+    local hasRoleIncludes = next(filters.roles) ~= nil
+    local hasClassIncludes = next(filters.classes) ~= nil
+    if not hasRoleIncludes and not hasClassIncludes then return true end
+
+    if hasRoleIncludes and MatchesRoleInclude(filters, resultID, n) then return true end
+    if hasClassIncludes and MatchesClassInclude(filters, resultID, n) then return true end
+    return false
 end
 
 local function GetResultSortClass(resultID)
@@ -409,10 +416,16 @@ local function UpdateClassCounts()
     end
 end
 
+local function AllShowFiltersOff()
+    return not showGroups and not showSingles
+end
+
 local function UpdateContentVisibility(show)
     if not filterWidgets.classRows then return end
-    if show then
+    local allOff = show and AllShowFiltersOff()
+    if show and not allOff then
         if filterWidgets.warningText then filterWidgets.warningText:Hide() end
+        if filterWidgets.showWarningText then filterWidgets.showWarningText:Hide() end
         for _, row in ipairs(filterWidgets.classRows) do
             row:Show()
         end
@@ -423,6 +436,7 @@ local function UpdateContentVisibility(show)
                 btn.icon:SetAlpha(1.0)
             end
         end
+        if filterWidgets.searchBtn then filterWidgets.searchBtn:SetText("Search Again") end
         if filterWidgets.resetBtn then
             if HasActiveFilters() then
                 filterWidgets.resetBtn:Enable()
@@ -431,7 +445,6 @@ local function UpdateContentVisibility(show)
             end
         end
     else
-        if filterWidgets.warningText then filterWidgets.warningText:Show() end
         for _, row in ipairs(filterWidgets.classRows) do
             row:Hide()
         end
@@ -442,7 +455,17 @@ local function UpdateContentVisibility(show)
                 btn.icon:SetAlpha(0.4)
             end
         end
-        if filterWidgets.resetBtn then filterWidgets.resetBtn:Disable() end
+        if allOff then
+            if filterWidgets.warningText then filterWidgets.warningText:Hide() end
+            if filterWidgets.showWarningText then filterWidgets.showWarningText:Show() end
+            if filterWidgets.searchBtn then filterWidgets.searchBtn:SetText("Search Again") end
+            if filterWidgets.resetBtn then filterWidgets.resetBtn:Enable() end
+        else
+            if filterWidgets.warningText then filterWidgets.warningText:Show() end
+            if filterWidgets.showWarningText then filterWidgets.showWarningText:Hide() end
+            if filterWidgets.searchBtn then filterWidgets.searchBtn:SetText("Get Started") end
+            if filterWidgets.resetBtn then filterWidgets.resetBtn:Disable() end
+        end
     end
 end
 
@@ -759,9 +782,19 @@ local function BuildFilterSection(parent, f, widgets)
     warning:SetPoint("CENTER", content, "TOPLEFT", CONTENT_WIDTH / 2, -200)
     warning:SetWidth(CONTENT_WIDTH - 40)
     warning:SetJustifyH("CENTER")
-    warning:SetText("Select at least one dungeon or raid in Group Browser and click Search Again to continue")
+    warning:SetText("Select at least one dungeon or raid in Group Browser and click Get Started to continue")
     warning:SetTextColor(0.6, 0.6, 0.6)
     widgets.warningText = warning
+
+    -- Warning text shown when all show filters are unchecked
+    local showWarning = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    showWarning:SetPoint("CENTER", content, "TOPLEFT", CONTENT_WIDTH / 2, -200)
+    showWarning:SetWidth(CONTENT_WIDTH - 40)
+    showWarning:SetJustifyH("CENTER")
+    showWarning:SetText("Enable at least one option in the gear menu to see listings")
+    showWarning:SetTextColor(0.6, 0.6, 0.6)
+    showWarning:Hide()
+    widgets.showWarningText = showWarning
 
     return cYOff
 end
@@ -866,6 +899,7 @@ local function CreateSidePanel()
     closeBtn:SetScript("OnClick", function()
         sidePanel:Hide()
         SetFilterTabHighlight(false)
+        panelDismissed = true
     end)
 
     ---------------------------------------------------------------------------
@@ -885,8 +919,14 @@ local function CreateSidePanel()
         infoIcon:SetAlpha(1.0)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Filter Controls", 1, 1, 1)
-        GameTooltip:AddLine("|cff80ff80Left-click|r  Include role or class", 0.8, 0.8, 0.8)
-        GameTooltip:AddLine("|cffff6666Right-click|r  Exclude role or class", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(" ", 1, 1, 1)
+        GameTooltip:AddLine("|cffffffffGear icon|r  Toggle show groups, singles, and 70 only", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("|cffffffffClass info icon|r  View listing notes for that class", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(" ", 1, 1, 1)
+        GameTooltip:AddLine("|cff80ff80Left-click|r  Include (must have this role/class)", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("|cffff6666Right-click|r  Exclude (must NOT have this role/class)", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(" ", 1, 1, 1)
+        GameTooltip:AddLine("Click again to clear the filter", 0.8, 0.8, 0.8)
         GameTooltip:Show()
     end)
     infoBtn:SetScript("OnLeave", function()
@@ -903,7 +943,9 @@ local function CreateSidePanel()
     gearBtn:SetupMenu(function(dropdown, rootDescription)
         rootDescription:SetTag("MENU_LFG_FILTER_OPTIONS")
 
-        rootDescription:CreateCheckbox("Show Groups (2+)",
+        rootDescription:CreateTitle("Show")
+
+        rootDescription:CreateCheckbox("Groups (2+)",
             function() return showGroups end,
             function()
                 showGroups = not showGroups
@@ -911,7 +953,7 @@ local function CreateSidePanel()
             end
         )
 
-        rootDescription:CreateCheckbox("Show Singles (1)",
+        rootDescription:CreateCheckbox("Singles (1)",
             function() return showSingles end,
             function()
                 showSingles = not showSingles
@@ -919,7 +961,7 @@ local function CreateSidePanel()
             end
         )
 
-        rootDescription:CreateCheckbox("Show 70 Only",
+        rootDescription:CreateCheckbox("70 Only",
             function() return show70Only end,
             function()
                 show70Only = not show70Only
@@ -945,7 +987,8 @@ local function CreateSidePanel()
     local searchBtn = CreateFrame("Button", nil, sidePanel, "UIPanelButtonTemplate")
     searchBtn:SetSize(140, 22)
     searchBtn:SetPoint("BOTTOMLEFT", sidePanel, "BOTTOMLEFT", 19, 79)
-    searchBtn:SetText("Search Again")
+    searchBtn:SetText("Get Started")
+    filterWidgets.searchBtn = searchBtn
     searchBtn:SetScript("OnClick", function()
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         LFGBrowse_DoSearch()
@@ -1020,9 +1063,11 @@ local function CreateFilterTab()
         if sidePanel:IsShown() then
             sidePanel:Hide()
             SetFilterTabHighlight(false)
+            panelDismissed = true
         else
             sidePanel:Show()
             SetFilterTabHighlight(true)
+            panelDismissed = false
         end
         PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
     end)
@@ -1059,6 +1104,27 @@ local function Initialize()
             sidePanel:Hide()
             SetFilterTabHighlight(false)
         end
+    end)
+
+    -- Auto-show panel when Dungeons or Raids category is selected
+    local DUNGEON_AND_RAID_CATEGORIES = {}
+    local cats = C_LFGList.GetAvailableCategories()
+    for _, catID in ipairs(cats) do
+        local info = C_LFGList.GetLfgCategoryInfo(catID)
+        if info and info.name then
+            local lower = info.name:lower()
+            if lower:find("dungeon") or lower:find("raid") then
+                DUNGEON_AND_RAID_CATEGORIES[catID] = true
+            end
+        end
+    end
+
+    hooksecurefunc(LFGBrowseFrame.CategoryDropdown, "SetValue", function(_, value)
+        if DUNGEON_AND_RAID_CATEGORIES[value] and not panelDismissed then
+            sidePanel:Show()
+            SetFilterTabHighlight(true)
+        end
+        panelDismissed = false
     end)
 
     local function SaveScroll()
