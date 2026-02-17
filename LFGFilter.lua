@@ -64,6 +64,17 @@ local function HasActiveFilters()
     return HasActiveSection(filters) or not showGroups or not showSingles
 end
 
+local function HasActivitySelected()
+    local cat = LFGBrowseFrame and LFGBrowseFrame.CategoryDropdown
+    local act = LFGBrowseFrame and LFGBrowseFrame.ActivityDropdown
+    if not cat or not act then return false end
+    local categoryID = cat.selectedCategoryID
+    if not categoryID or categoryID == 0 then return false end
+    local selected = act.selectedValues
+    if not selected or #selected == 0 then return false end
+    return true
+end
+
 local ROLE_TO_LFGROLE = { TANK = "tank", HEALER = "healer", DAMAGER = "dps" }
 
 local function PassesRoleCheck(f, resultID, numMembers)
@@ -342,6 +353,29 @@ local function UpdateClassCounts()
     end
 end
 
+local function UpdateContentVisibility(show)
+    if not filterWidgets.classRows then return end
+    if show then
+        if filterWidgets.warningText then filterWidgets.warningText:Hide() end
+        for _, row in ipairs(filterWidgets.classRows) do
+            row:Show()
+        end
+        if filterWidgets.resetBtn then
+            if HasActiveFilters() then
+                filterWidgets.resetBtn:Enable()
+            else
+                filterWidgets.resetBtn:Disable()
+            end
+        end
+    else
+        if filterWidgets.warningText then filterWidgets.warningText:Show() end
+        for _, row in ipairs(filterWidgets.classRows) do
+            row:Hide()
+        end
+        if filterWidgets.resetBtn then filterWidgets.resetBtn:Disable() end
+    end
+end
+
 local function TriggerRefilter()
     if LFGBrowseFrame then
         LFGBrowseFrame:UpdateResultList()
@@ -588,8 +622,18 @@ local function BuildFilterSection(parent, f, widgets)
         local row = CreateClassRow(content, class, f.classes, f.excludeClasses, refreshFn)
         row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, cYOff)
         widgets.classRows[#widgets.classRows + 1] = row
+        row:Hide()
         cYOff = cYOff - CLASS_ROW_HEIGHT
     end
+
+    -- Warning text shown until a search is performed
+    local warning = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    warning:SetPoint("CENTER", content, "TOPLEFT", CONTENT_WIDTH / 2, -200)
+    warning:SetWidth(CONTENT_WIDTH - 40)
+    warning:SetJustifyH("CENTER")
+    warning:SetText("Select at least one dungeon or raid in Group Browser and click Search Again to continue")
+    warning:SetTextColor(0.6, 0.6, 0.6)
+    widgets.warningText = warning
 
     return cYOff
 end
@@ -758,6 +802,37 @@ local function CreateSidePanel()
 
     BuildFilterSection(contentContainer, filters, filterWidgets)
 
+    ---------------------------------------------------------------------------
+    -- Search Again button (bottom center, same style as Send Message button)
+    ---------------------------------------------------------------------------
+
+    local searchBtn = CreateFrame("Button", nil, sidePanel, "UIPanelButtonTemplate")
+    searchBtn:SetSize(140, 22)
+    searchBtn:SetPoint("BOTTOMLEFT", sidePanel, "BOTTOMLEFT", 19, 79)
+    searchBtn:SetText("Search Again")
+    searchBtn:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        LFGBrowse_DoSearch()
+    end)
+
+    local resetBtn = CreateFrame("Button", nil, sidePanel, "UIPanelButtonTemplate")
+    resetBtn:SetSize(140, 22)
+    resetBtn:SetPoint("BOTTOMRIGHT", sidePanel, "BOTTOMRIGHT", -40, 79)
+    resetBtn:SetText("Reset Filters")
+    resetBtn:Disable()
+    filterWidgets.resetBtn = resetBtn
+    resetBtn:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        wipe(filters.roles)
+        wipe(filters.excludeRoles)
+        wipe(filters.classes)
+        wipe(filters.excludeClasses)
+        showGroups = true
+        showSingles = true
+        RefreshSection(filterWidgets, filters)
+        TriggerRefilter()
+    end)
+
     return sidePanel
 end
 
@@ -867,14 +942,35 @@ local function Initialize()
     end
 
     hooksecurefunc(LFGBrowseFrame, "UpdateResultList", function(self)
-        if HasActiveFilters() then
+        local show = HasActivitySelected()
+        if show and HasActiveFilters() then
             local pct = SaveScroll()
             FilterResults(self)
             self:UpdateResults()
             RestoreScroll(pct)
         end
-        ComputeClassData(self.results)
+        if show then
+            ComputeClassData(self.results)
+            UpdateClassCounts()
+        end
+        UpdateContentVisibility(show)
+    end)
+
+    -- Check if activity already selected (e.g., after /reload)
+    if HasActivitySelected() then
+        ComputeClassData(LFGBrowseFrame.results)
         UpdateClassCounts()
+        UpdateContentVisibility(true)
+    end
+
+    -- Also check on panel show, in case activity was selected while panel was hidden
+    sidePanel:HookScript("OnShow", function()
+        local show = HasActivitySelected()
+        if show and LFGBrowseFrame.results then
+            ComputeClassData(LFGBrowseFrame.results)
+            UpdateClassCounts()
+        end
+        UpdateContentVisibility(show)
     end)
 
 end
