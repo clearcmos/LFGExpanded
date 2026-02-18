@@ -4,6 +4,8 @@
 
 Built specifically for **TBC Classic Anniversary**.
 
+![LFG Expanded](https://github.com/clearcmos/LFGExpanded/blob/main/assets/image2.png?raw=true)
+
 ---
 
 ## Features
