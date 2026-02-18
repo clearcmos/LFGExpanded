@@ -4,7 +4,7 @@
 
 Built specifically for **TBC Classic Anniversary**.
 
-https://github.com/clearcmos/LFGExpanded/raw/main/assets/demo.mp4
+<video src="https://github.com/clearcmos/LFGExpanded/raw/main/assets/demo.mp4" controls muted autoplay loop></video>
 
 ---
 
