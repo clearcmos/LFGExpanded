@@ -786,7 +786,7 @@ local function BuildFilterSection(parent, f, widgets)
     warning:SetPoint("CENTER", content, "TOPLEFT", CONTENT_WIDTH / 2, -200)
     warning:SetWidth(CONTENT_WIDTH - 40)
     warning:SetJustifyH("CENTER")
-    warning:SetText("Select at least one dungeon or raid in Group Browser and click Get Started to continue")
+    warning:SetText("Create a listing, or select at least one dungeon or raid in Group Browser and click Get Started")
     warning:SetTextColor(0.6, 0.6, 0.6)
     widgets.warningText = warning
 
