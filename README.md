@@ -4,6 +4,8 @@
 
 Built specifically for **TBC Classic Anniversary**.
 
+https://github.com/clearcmos/LFGExpanded/raw/main/assets/demo.mp4
+
 ---
 
 ## Features
@@ -53,4 +55,4 @@ MIT License - Open source and free to use.
 
 ## Feedback & Issues
 
-Found a bug or have a suggestion? Post a comment / message me on CurseForge, or open an issue on GitHub: https://github.com/clearcmos/LFGExpanded
+Found a bug or have a suggestion? Reach me on Discord: `_cmos` or open an issue on GitHub: https://github.com/clearcmos/LFGExpanded
