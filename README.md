@@ -27,10 +27,7 @@ Built specifically for **TBC Classic Anniversary**.
 
 ## Usage
 
-Open the Group Finder window. The filter panel appears automatically when Dungeons or Raids is selected. You can use it two ways:
-
-- **Browsing groups** - Select an activity and click **Get Started** to search and populate the filters
-- **Creating a listing** - The panel is available as a companion while setting up your own listing
+Open the Looking for Group window and select Dungeons or Raids — the filter panel appears automatically. Whether you're browsing groups or creating a listing, selecting a dungeon or raid activates the filters right away.
 
 ### Controls
 
