@@ -52,15 +52,6 @@
 
 See the `/wow-addon` skill for the standard development workflow (test, version, commit, deploy).
 
-### Manual Zip (Deprecated - use CI/CD instead)
-
-```bash
-cd ~/git/mine/LFGExpanded && \
-rm -f ~/LFGExpanded-*.zip && \
-zip -r ~/LFGExpanded-$(grep "## Version:" LFGExpanded.toc | cut -d' ' -f3 | tr -d '\r').zip \
-    LFGExpanded.toc LFGExpanded.lua LICENSE.md
-```
-
 ## WoW API Reference
 
 For WoW Classic Anniversary API documentation, patterns, and development workflow, use the `/wow-addon` skill:
