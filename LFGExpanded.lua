@@ -4,6 +4,11 @@ local addonName, addon = ...
 -- Constants
 -------------------------------------------------------------------------------
 
+local GetSearchResultInfo = C_LFGList.GetSearchResultInfo
+local GetSearchResultPlayerInfo = C_LFGList.GetSearchResultPlayerInfo
+local GetSearchResultMemberCounts = C_LFGList.GetSearchResultMemberCounts
+local GetSearchResultLeaderInfo = C_LFGList.GetSearchResultLeaderInfo
+
 local ROLE_ICON_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
 local ROLE_BG_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICONS-ROLEBACKGROUNDS"
 local CLASS_ICON_TEXTURE = "Interface\\GLUES\\CHARACTERCREATE\\UI-CharacterCreate-Classes"
@@ -35,6 +40,12 @@ local CONTENT_TOP = -50
 local CONTENT_WIDTH = 324
 local CONTENT_HEIGHT = 347
 
+local LARGE_ROLE_ATLAS = {
+    TANK = "groupfinder-icon-role-large-tank",
+    HEALER = "groupfinder-icon-role-large-heal",
+    DAMAGER = "groupfinder-icon-role-large-dps",
+}
+
 -------------------------------------------------------------------------------
 -- State
 -------------------------------------------------------------------------------
@@ -59,8 +70,8 @@ local classNotes = {}
 
 local function HasActiveSection(f)
     return next(f.roles) ~= nil or next(f.classes) ~= nil
-        or (f.excludeRoles and next(f.excludeRoles) ~= nil)
-        or (f.excludeClasses and next(f.excludeClasses) ~= nil)
+        or next(f.excludeRoles) ~= nil
+        or next(f.excludeClasses) ~= nil
 end
 
 local function HasActiveFilters()
@@ -87,7 +98,7 @@ local function PassesRoleExclusion(f, resultID, numMembers)
     if not hasExclude then return true end
 
     if numMembers == 1 then
-        local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
+        local memberInfo = GetSearchResultPlayerInfo(resultID, 1)
         if not memberInfo or not memberInfo.lfgRoles then return true end
         local lfg = memberInfo.lfgRoles
         -- Reject only if ALL of the player's listed roles are excluded
@@ -101,7 +112,7 @@ local function PassesRoleExclusion(f, resultID, numMembers)
         return hasNonExcludedRole
     end
 
-    local mc = C_LFGList.GetSearchResultMemberCounts(resultID)
+    local mc = GetSearchResultMemberCounts(resultID)
     if not mc then return true end
     for role in pairs(f.excludeRoles) do
         if mc[role] and mc[role] > 0 then return false end
@@ -114,7 +125,7 @@ local function PassesClassExclusion(f, resultID, numMembers)
     if not hasExclude then return true end
 
     for i = 1, numMembers do
-        local info = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
+        local info = GetSearchResultPlayerInfo(resultID, i)
         if info and info.classFilename and f.excludeClasses[info.classFilename] then
             return false
         end
@@ -129,7 +140,7 @@ local function MatchesRoleInclude(f, resultID, numMembers)
     if not hasInclude then return false end
 
     if numMembers == 1 then
-        local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
+        local memberInfo = GetSearchResultPlayerInfo(resultID, 1)
         if not memberInfo or not memberInfo.lfgRoles then return false end
         local lfg = memberInfo.lfgRoles
         for role in pairs(f.roles) do
@@ -139,7 +150,7 @@ local function MatchesRoleInclude(f, resultID, numMembers)
         return false
     end
 
-    local mc = C_LFGList.GetSearchResultMemberCounts(resultID)
+    local mc = GetSearchResultMemberCounts(resultID)
     if not mc then return false end
     for role in pairs(f.roles) do
         if mc[role] and mc[role] > 0 then return true end
@@ -152,7 +163,7 @@ local function MatchesClassInclude(f, resultID, numMembers)
     if not hasInclude then return false end
 
     for i = 1, numMembers do
-        local info = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
+        local info = GetSearchResultPlayerInfo(resultID, i)
         if info and info.classFilename and f.classes[info.classFilename] then
             return true
         end
@@ -160,8 +171,8 @@ local function MatchesClassInclude(f, resultID, numMembers)
     return false
 end
 
-local function ShouldShowResult(resultID)
-    local info = C_LFGList.GetSearchResultInfo(resultID)
+local function ShouldShowResult(resultID, info)
+    info = info or GetSearchResultInfo(resultID)
     if not info then return false end
     local n = info.numMembers or 0
 
@@ -173,7 +184,7 @@ local function ShouldShowResult(resultID)
 
     if show70Only then
         for i = 1, n do
-            local mi = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
+            local mi = GetSearchResultPlayerInfo(resultID, i)
             if mi and mi.level and mi.level < 70 then return false end
         end
     end
@@ -195,7 +206,7 @@ local function ShouldShowResult(resultID)
 end
 
 local function GetResultSortClass(resultID)
-    local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
+    local memberInfo = GetSearchResultPlayerInfo(resultID, 1)
     if memberInfo and memberInfo.classFilename then
         return memberInfo.classFilename
     end
@@ -205,24 +216,28 @@ end
 local function FilterResults(browseFrame)
     local results = browseFrame.results
     if not results then return end
-    for i = #results, 1, -1 do
-        if not ShouldShowResult(results[i]) then
-            table.remove(results, i)
-        end
-    end
 
-    if HasActiveFilters() then
-        local classCache = {}
-        local memberCountCache = {}
-        for _, id in ipairs(results) do
-            local info = C_LFGList.GetSearchResultInfo(id)
+    -- Single-pass filter with in-place compaction (O(n) vs O(n²) table.remove)
+    -- Also caches info for sorting to avoid redundant API calls
+    local memberCountCache = {}
+    local classCache = {}
+    local j = 1
+    for i = 1, #results do
+        local id = results[i]
+        local info = GetSearchResultInfo(id)
+        if ShouldShowResult(id, info) then
+            results[j] = id
             local n = info and info.numMembers or 0
             memberCountCache[id] = n
             if n == 1 then
                 classCache[id] = GetResultSortClass(id)
             end
+            j = j + 1
         end
+    end
+    for i = j, #results do results[i] = nil end
 
+    if HasActiveFilters() then
         table.sort(results, function(a, b)
             local aIsGroup = memberCountCache[a] > 1
             local bIsGroup = memberCountCache[b] > 1
@@ -246,60 +261,56 @@ local function ComputeClassData(results)
     if not results then return end
 
     for _, resultID in ipairs(results) do
-        local info = C_LFGList.GetSearchResultInfo(resultID)
+        local info = GetSearchResultInfo(resultID)
         if info then
             local numMembers = info.numMembers or 0
+            local seenClasses = {}
 
-            -- Only count listings that pass all active filters
-            if ShouldShowResult(resultID) then
-                local seenClasses = {}
-
-                -- Collect per-class data: which classes appear, and which roles per class (per listing)
-                local classRolesInListing = {}  -- classRolesInListing["HUNTER"] = { TANK=true, DAMAGER=true }
-                for i = 1, numMembers do
-                    local memberInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
-                    if memberInfo and memberInfo.classFilename then
-                        local class = memberInfo.classFilename
-                        if not seenClasses[class] then
-                            seenClasses[class] = true
-                            classCounts[class] = (classCounts[class] or 0) + 1
-                            classRolesInListing[class] = {}
-                        end
-                        local hasRole = false
-                        if memberInfo.lfgRoles then
-                            for lfgKey, filterRole in pairs(LFGROLE_TO_FILTERROLE) do
-                                if memberInfo.lfgRoles[lfgKey] then
-                                    classRolesInListing[class][filterRole] = true
-                                    hasRole = true
-                                end
+            -- Collect per-class data: which classes appear, and which roles per class (per listing)
+            local classRolesInListing = {}  -- classRolesInListing["HUNTER"] = { TANK=true, DAMAGER=true }
+            for i = 1, numMembers do
+                local memberInfo = GetSearchResultPlayerInfo(resultID, i)
+                if memberInfo and memberInfo.classFilename then
+                    local class = memberInfo.classFilename
+                    if not seenClasses[class] then
+                        seenClasses[class] = true
+                        classCounts[class] = (classCounts[class] or 0) + 1
+                        classRolesInListing[class] = {}
+                    end
+                    local hasRole = false
+                    if memberInfo.lfgRoles then
+                        for lfgKey, filterRole in pairs(LFGROLE_TO_FILTERROLE) do
+                            if memberInfo.lfgRoles[lfgKey] then
+                                classRolesInListing[class][filterRole] = true
+                                hasRole = true
                             end
                         end
-                        -- Fallback to assignedRole for group members without lfgRoles
-                        if not hasRole and memberInfo.assignedRole and memberInfo.assignedRole ~= "" and memberInfo.assignedRole ~= "NONE" then
-                            classRolesInListing[class][memberInfo.assignedRole] = true
-                        end
+                    end
+                    -- Fallback to assignedRole for group members without lfgRoles
+                    if not hasRole and memberInfo.assignedRole and memberInfo.assignedRole ~= "" and memberInfo.assignedRole ~= "NONE" then
+                        classRolesInListing[class][memberInfo.assignedRole] = true
                     end
                 end
-                -- Tally roles per class (once per listing, not per member)
-                for class, roles in pairs(classRolesInListing) do
-                    if not classRoleCounts[class] then
-                        classRoleCounts[class] = { TANK = 0, HEALER = 0, DAMAGER = 0 }
-                    end
-                    for filterRole in pairs(roles) do
-                        classRoleCounts[class][filterRole] = classRoleCounts[class][filterRole] + 1
-                    end
+            end
+            -- Tally roles per class (once per listing, not per member)
+            for class, roles in pairs(classRolesInListing) do
+                if not classRoleCounts[class] then
+                    classRoleCounts[class] = { TANK = 0, HEALER = 0, DAMAGER = 0 }
                 end
+                for filterRole in pairs(roles) do
+                    classRoleCounts[class][filterRole] = classRoleCounts[class][filterRole] + 1
+                end
+            end
 
-                local comment = info.comment
-                if comment and comment ~= "" then
-                    local leaderInfo = C_LFGList.GetSearchResultPlayerInfo(resultID, 1)
-                    local leaderClass = leaderInfo and leaderInfo.classFilename
-                    if leaderClass then
-                        if not classNotes[leaderClass] then
-                            classNotes[leaderClass] = {}
-                        end
-                        classNotes[leaderClass][#classNotes[leaderClass] + 1] = { resultID = resultID, comment = comment }
+            local comment = info.comment
+            if comment and comment ~= "" then
+                local leaderInfo = GetSearchResultPlayerInfo(resultID, 1)
+                local leaderClass = leaderInfo and leaderInfo.classFilename
+                if leaderClass then
+                    if not classNotes[leaderClass] then
+                        classNotes[leaderClass] = {}
                     end
+                    classNotes[leaderClass][#classNotes[leaderClass] + 1] = { resultID = resultID, comment = comment }
                 end
             end
         end
@@ -594,11 +605,6 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
     row.label = label
 
     -- Role breakdown icons (native large atlas, 18x18, same as Group Browser)
-    local LARGE_ROLE_ATLAS = {
-        TANK = "groupfinder-icon-role-large-tank",
-        HEALER = "groupfinder-icon-role-large-heal",
-        DAMAGER = "groupfinder-icon-role-large-dps",
-    }
     local ROLE_START_X = 120
     local ROLE_SPACING = 36
     local roleWidgets = {}
@@ -650,14 +656,14 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
             for i, entry in ipairs(notes) do
                 local rid = entry.resultID
                 local name
-                local ri = C_LFGList.GetSearchResultInfo(rid)
+                local ri = GetSearchResultInfo(rid)
                 if ri then name = ri.leaderName end
                 if not name then
-                    local mi = C_LFGList.GetSearchResultPlayerInfo(rid, 1)
+                    local mi = GetSearchResultPlayerInfo(rid, 1)
                     name = mi and mi.name
                 end
                 if not name then
-                    local li = C_LFGList.GetSearchResultLeaderInfo(rid)
+                    local li = GetSearchResultLeaderInfo(rid)
                     name = li and li.name
                 end
                 sorted[#sorted + 1] = { name = name or "Unknown", comment = entry.comment }
@@ -1150,15 +1156,15 @@ local function Initialize()
 
     hooksecurefunc(LFGBrowseFrame, "UpdateResultList", function(self)
         local show = HasActivitySelected()
-        if show then
-            ComputeClassData(self.results)
-            UpdateClassCounts()
-        end
         if show and HasActiveFilters() then
             local pct = SaveScroll()
             FilterResults(self)
             self:UpdateResults()
             RestoreScroll(pct)
+        end
+        if show then
+            ComputeClassData(self.results)
+            UpdateClassCounts()
         end
         UpdateContentVisibility(show)
     end)
