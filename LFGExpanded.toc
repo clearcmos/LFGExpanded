@@ -2,7 +2,7 @@
 ## Title: LFG Expanded
 ## Notes: Filter LFG List results by class and role
 ## Author: clearcmos
-## Version: 1.0.0
+## Version: 1.0.1
 ## DefaultState: enabled
 ## AllowLoadGameType: tbc
 
