@@ -5,7 +5,7 @@
 **LFG Expanded** is a WoW Classic Anniversary addon that adds a filter side panel to the LFG Browse frame, letting you filter search results by role and class.
 
 ### Key Files
-- `LFGExpanded.lua` - Main addon code (all logic in single file, ~1190 lines)
+- `LFGExpanded.lua` - Main addon code (all logic in single file, ~1200 lines)
 - `LFGExpanded.toc` - Addon manifest
 - `README.md` - Documentation (also used for CurseForge description)
 - Deployed to: `/mnt/data/games/World of Warcraft/_anniversary_/Interface/AddOns/LFGExpanded/`
@@ -17,8 +17,8 @@
 - **Class filters**: All 9 TBC classes with class-colored labels, include/exclude
 - **Per-class role breakdown**: Each class row shows role counts with native Group Browser icons (counts reflect only visible/filtered listings)
 - **Class notes tooltips**: Hover info icon to see listing notes from leaders of that class, with class-colored names and lazy name resolution
-- **Gear dropdown menu**: "Show" header with Groups (2+), Singles (1), 70 Only options
-- Smart sorting when filters active: groups first, singles sorted by class
+- **Show checkboxes**: Groups, Singles, 70 Only inline checkboxes below role icons (native UICheckButtonTemplate)
+- Smart sorting when role/class filters or group/singles visibility active: groups first, singles sorted by class
 - Scroll position preserved during filter updates
 - Dynamic button label: "Get Started" before first search, "Search Again" after
 - Warning message when all show filters (groups + singles) are unchecked
@@ -30,14 +30,13 @@
 - Hooks `CategoryDropdown.SetValue` to auto-show panel on Dungeons/Raids selection
 - `panelDismissed` flag tracks manual close; resets on new category selection
 - Single filter state table: `filters` (roles, excludeRoles, classes, excludeClasses)
-- Separate boolean flags: `showGroups`, `showSingles`, `show70Only` (toggled via gear dropdown)
+- Separate boolean flags: `showGroups`, `showSingles`, `show70Only` (toggled via inline checkboxes)
 - Uses `C_LFGList.GetSearchResultMemberCounts` for group role data
 - Uses `C_LFGList.GetSearchResultPlayerInfo().lfgRoles` for single role data (member counts are unreliable for singles)
 - Uses `C_LFGList.GetSearchResultPlayerInfo().classFilename` for class detection
 - Notes are stored with `resultID` and leader names resolved lazily at tooltip display time
 - Three-state visual for role/class buttons: off (desaturated), require (bright + checkmark), exclude (red tint + red X)
 - Native LFG frame styling using `PortraitFrameTemplate`, `UI-LFG-FRAME` background textures, and `CharacterFrameTabButtonTemplate` tab
-- Gear dropdown uses native `DropdownButton` with `LFGOptionsButton` template, `SetupMenu` API, and `CreateTitle` for header
 - Waits for `Blizzard_GroupFinder_VanillaStyle` ADDON_LOADED before initializing
 
 ### Filter Logic

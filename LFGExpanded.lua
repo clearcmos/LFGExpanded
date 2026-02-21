@@ -237,7 +237,7 @@ local function FilterResults(browseFrame)
     end
     for i = j, #results do results[i] = nil end
 
-    if HasActiveFilters() then
+    if HasActiveSection(filters) or not showGroups or not showSingles then
         table.sort(results, function(a, b)
             local aIsGroup = memberCountCache[a] > 1
             local bIsGroup = memberCountCache[b] > 1
@@ -755,9 +755,8 @@ local function BuildFilterSection(parent, f, widgets)
 
     local refreshFn = function() RefreshSection(widgets, f) end
 
-    -- Role icon zone matches native LFG proportions (68px: icons at -60, content at -128)
-    local separatorOff = -68
-    local iconCenterY = -((math.abs(separatorOff) - ROLE_BUTTON_SIZE) / 2)
+    -- Role icon zone (nudged up to make room for show-filter checkboxes below)
+    local iconCenterY = 2
     local cYOff = iconCenterY
 
     local numButtons = 3
@@ -774,9 +773,37 @@ local function BuildFilterSection(parent, f, widgets)
         widgets.roleButtons[#widgets.roleButtons + 1] = btn
     end
 
+    -- Show-filter checkboxes (between role icons and ornate bar)
+    local checkY = iconCenterY - ROLE_BUTTON_SIZE - 1
+    local CHECK_SIZE = 20
+    local checkData = {
+        { label = "Groups",  getter = function() return showGroups end,  setter = function(v) showGroups = v end },
+        { label = "Singles", getter = function() return showSingles end, setter = function(v) showSingles = v end },
+        { label = "70 Only", getter = function() return show70Only end,  setter = function(v) show70Only = v end },
+    }
+    local checkSpacing = CONTENT_WIDTH / #checkData
+    widgets.showCheckboxes = {}
+    for i, info in ipairs(checkData) do
+        local cb = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
+        cb:SetSize(CHECK_SIZE, CHECK_SIZE)
+        cb:SetChecked(info.getter())
+        local xOff = (i - 1) * checkSpacing + (checkSpacing - CHECK_SIZE) / 2 - 10
+        cb:SetPoint("TOPLEFT", content, "TOPLEFT", xOff, checkY)
+        local lbl = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        lbl:SetPoint("LEFT", cb, "RIGHT", 2, 1)
+        lbl:SetText(info.label)
+        cb:SetScript("OnClick", function(self)
+            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+            info.setter(self:GetChecked())
+            TriggerRefilter()
+        end)
+        widgets.showCheckboxes[i] = cb
+        widgets.showCheckboxes[info.label] = cb
+    end
+
     -- No manual separator needed — the baked-in ornate bar in UI-LFG-FRAME
     -- at y=-128 is revealed by positioning bgArt to start just below it
-    cYOff = separatorOff - 12
+    cYOff = -80
 
     widgets.classRows = {}
     for _, class in ipairs(CLASS_ORDER) do
@@ -801,7 +828,7 @@ local function BuildFilterSection(parent, f, widgets)
     showWarning:SetPoint("CENTER", content, "TOPLEFT", CONTENT_WIDTH / 2, -200)
     showWarning:SetWidth(CONTENT_WIDTH - 40)
     showWarning:SetJustifyH("CENTER")
-    showWarning:SetText("Enable at least one option in the gear menu to see listings")
+    showWarning:SetText("Enable Groups or Singles above to see listings")
     showWarning:SetTextColor(0.6, 0.6, 0.6)
     showWarning:Hide()
     widgets.showWarningText = showWarning
@@ -930,7 +957,7 @@ local function CreateSidePanel()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Filter Controls", 1, 1, 1)
         GameTooltip:AddLine(" ", 1, 1, 1)
-        GameTooltip:AddLine("|cffffffffGear icon|r  Toggle show groups, singles, and 70 only", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("|cffffffffCheckboxes|r  Toggle groups, singles, and 70 only", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("|cffffffffClass info icon|r  View listing notes for that class", 0.8, 0.8, 0.8)
         GameTooltip:AddLine(" ", 1, 1, 1)
         GameTooltip:AddLine("|cff80ff80Left-click|r  Include (must have this role/class)", 0.8, 0.8, 0.8)
@@ -942,42 +969,6 @@ local function CreateSidePanel()
     infoBtn:SetScript("OnLeave", function()
         infoIcon:SetAlpha(0.8)
         GameTooltip:Hide()
-    end)
-
-    ---------------------------------------------------------------------------
-    -- Gear button (native DropdownButton with SetupMenu, same as LFG gear)
-    ---------------------------------------------------------------------------
-
-    local gearBtn = CreateFrame("DropdownButton", nil, sidePanel, "LFGOptionsButton")
-    gearBtn:SetPoint("RIGHT", infoBtn, "LEFT", -4, 0)
-    gearBtn:SetupMenu(function(dropdown, rootDescription)
-        rootDescription:SetTag("MENU_LFG_FILTER_OPTIONS")
-
-        rootDescription:CreateTitle("Show")
-
-        rootDescription:CreateCheckbox("Groups (2+)",
-            function() return showGroups end,
-            function()
-                showGroups = not showGroups
-                TriggerRefilter()
-            end
-        )
-
-        rootDescription:CreateCheckbox("Singles (1)",
-            function() return showSingles end,
-            function()
-                showSingles = not showSingles
-                TriggerRefilter()
-            end
-        )
-
-        rootDescription:CreateCheckbox("70 Only",
-            function() return show70Only end,
-            function()
-                show70Only = not show70Only
-                TriggerRefilter()
-            end
-        )
     end)
 
     ---------------------------------------------------------------------------
@@ -1019,6 +1010,13 @@ local function CreateSidePanel()
         showGroups = true
         showSingles = true
         show70Only = false
+        if filterWidgets.showCheckboxes then
+            for i, cb in ipairs(filterWidgets.showCheckboxes) do
+                if i == 1 then cb:SetChecked(true) end   -- Groups
+                if i == 2 then cb:SetChecked(true) end   -- Singles
+                if i == 3 then cb:SetChecked(false) end  -- 70 Only
+            end
+        end
         RefreshSection(filterWidgets, filters)
         TriggerRefilter()
     end)

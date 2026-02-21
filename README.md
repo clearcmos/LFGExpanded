@@ -18,7 +18,7 @@ Built specifically for **TBC Classic Anniversary**.
 - **Class notes tooltips** - Hover the info icon on any class to see listing notes from leaders of that class, with class-colored names
 - **Include/Exclude** - Left-click to require, right-click to exclude, click again to clear
 - **Smart exclusion** - Exclusions always override includes. Groups: reject if excluded role/class is present. Singles: reject only if all listed roles are excluded
-- **Gear menu options** - Show/hide groups, singles, and level 70 only via gear dropdown
+- **Show filters** - Groups, Singles, and 70 Only checkboxes below the role icons
 - **Smart sorting** - Groups shown first, singles sorted by class when filters active
 - **Search Again & Reset** - Buttons to re-search or clear all filters
 - **Native LFG styling** - Uses the same portrait frame, background textures, and tab style as the built-in Group Finder
@@ -34,7 +34,7 @@ Open the Looking for Group window and select Dungeons or Raids — the filter pa
 - **Left-click** a role or class to include it (must have)
 - **Right-click** a role or class to exclude it (must NOT have)
 - Click again to clear the filter
-- **Gear icon** - Toggle show groups, show singles, and level 70 only
+- **Checkboxes** - Toggle show groups, show singles, and level 70 only
 
 ---
 
@@ -42,7 +42,7 @@ Open the Looking for Group window and select Dungeons or Raids — the filter pa
 
 - Role filters: Tank, Healer, DPS
 - Class filters: Druid, Hunter, Mage, Paladin, Priest, Rogue, Shaman, Warlock, Warrior
-- Groups (2+) / Singles (1) / 70 Only via gear dropdown
+- Groups / Singles / 70 Only via inline checkboxes
 - Search Again and Reset Filters buttons
 
 ---

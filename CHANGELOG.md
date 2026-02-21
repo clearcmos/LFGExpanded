@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.2
+
+- Replace gear dropdown with inline Groups/Singles/70 Only checkboxes below role icons for better discoverability
+- Fix 70 Only toggle reordering listings when no non-70s were present
+
 ## v1.0.1
 
 - Localize hot-path C_LFGList API calls to reduce global lookups in filter loops
