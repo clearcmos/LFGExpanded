@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.3
+
+- Fix Lua error from stale LFG search results when groups delist while browsing
+- Reduce GC pressure by reusing tables across search updates instead of reallocating
+
 ## v1.0.2
 
 - Replace gear dropdown with inline Groups/Singles/70 Only checkboxes below role icons for better discoverability

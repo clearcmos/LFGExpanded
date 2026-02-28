@@ -1,4 +1,4 @@
-local addonName, addon = ...
+local _, _ = ...
 
 -------------------------------------------------------------------------------
 -- Constants
@@ -63,6 +63,11 @@ local panelDismissed = false  -- true once user manually closes panel; resets on
 local classCounts = {}
 local classRoleCounts = {}  -- classRoleCounts["DRUID"] = { TANK=0, HEALER=0, DAMAGER=0 }
 local classNotes = {}
+local infoCache = {}
+local seenClasses = {}
+local memberCountCache = {}
+local classCache = {}
+local classRolesInListing = {}
 
 -------------------------------------------------------------------------------
 -- Filter Logic
@@ -213,20 +218,34 @@ local function GetResultSortClass(resultID)
     return "ZZZZ"
 end
 
+local function ResultSortComparator(a, b)
+    local aIsGroup = memberCountCache[a] > 1
+    local bIsGroup = memberCountCache[b] > 1
+    if aIsGroup ~= bIsGroup then return aIsGroup end
+    if not aIsGroup then
+        local classA = classCache[a] or "ZZZZ"
+        local classB = classCache[b] or "ZZZZ"
+        if classA ~= classB then return classA < classB end
+    end
+    return false
+end
+
 local function FilterResults(browseFrame)
     local results = browseFrame.results
     if not results then return end
 
     -- Single-pass filter with in-place compaction (O(n) vs O(n²) table.remove)
-    -- Also caches info for sorting to avoid redundant API calls
-    local memberCountCache = {}
-    local classCache = {}
+    -- Also caches info for sorting and reuse by ComputeClassData
+    wipe(infoCache)
+    wipe(memberCountCache)
+    wipe(classCache)
     local j = 1
     for i = 1, #results do
         local id = results[i]
         local info = GetSearchResultInfo(id)
         if ShouldShowResult(id, info) then
             results[j] = id
+            infoCache[id] = info
             local n = info and info.numMembers or 0
             memberCountCache[id] = n
             if n == 1 then
@@ -238,17 +257,7 @@ local function FilterResults(browseFrame)
     for i = j, #results do results[i] = nil end
 
     if HasActiveSection(filters) or not showGroups or not showSingles then
-        table.sort(results, function(a, b)
-            local aIsGroup = memberCountCache[a] > 1
-            local bIsGroup = memberCountCache[b] > 1
-            if aIsGroup ~= bIsGroup then return aIsGroup end
-            if not aIsGroup then
-                local classA = classCache[a] or "ZZZZ"
-                local classB = classCache[b] or "ZZZZ"
-                if classA ~= classB then return classA < classB end
-            end
-            return false
-        end)
+        table.sort(results, ResultSortComparator)
     end
 end
 
@@ -261,13 +270,13 @@ local function ComputeClassData(results)
     if not results then return end
 
     for _, resultID in ipairs(results) do
-        local info = GetSearchResultInfo(resultID)
+        local info = infoCache[resultID] or GetSearchResultInfo(resultID)
         if info then
             local numMembers = info.numMembers or 0
-            local seenClasses = {}
+            wipe(seenClasses)
 
             -- Collect per-class data: which classes appear, and which roles per class (per listing)
-            local classRolesInListing = {}  -- classRolesInListing["HUNTER"] = { TANK=true, DAMAGER=true }
+            wipe(classRolesInListing)
             for i = 1, numMembers do
                 local memberInfo = GetSearchResultPlayerInfo(resultID, i)
                 if memberInfo and memberInfo.classFilename then
@@ -275,7 +284,11 @@ local function ComputeClassData(results)
                     if not seenClasses[class] then
                         seenClasses[class] = true
                         classCounts[class] = (classCounts[class] or 0) + 1
-                        classRolesInListing[class] = {}
+                        if classRolesInListing[class] then
+                            wipe(classRolesInListing[class])
+                        else
+                            classRolesInListing[class] = {}
+                        end
                     end
                     local hasRole = false
                     if memberInfo.lfgRoles then
@@ -653,7 +666,7 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
         GameTooltip:SetText(CLASS_LABELS[cls] .. " Notes", 1, 1, 1)
         if notes and #notes > 0 then
             local sorted = {}
-            for i, entry in ipairs(notes) do
+            for _, entry in ipairs(notes) do
                 local rid = entry.resultID
                 local name
                 local ri = GetSearchResultInfo(rid)
@@ -1101,6 +1114,17 @@ local function Initialize()
     if not LFGBrowseFrame or not LFGParentFrame then return end
     initialized = true
 
+    -- Wrap Blizzard's LFGBrowseSearchEntry_Update to guard against stale resultIDs
+    -- (C_LFGList.GetSearchResultInfo returns nil for delisted groups)
+    local orig_LFGBrowseSearchEntry_Update = LFGBrowseSearchEntry_Update
+    function LFGBrowseSearchEntry_Update(self, ...)
+        if not GetSearchResultInfo(self.resultID) then
+            self:Hide()
+            return
+        end
+        orig_LFGBrowseSearchEntry_Update(self, ...)
+    end
+
     CreateSidePanel()
     sidePanel:Hide()
 
@@ -1164,6 +1188,7 @@ local function Initialize()
             ComputeClassData(self.results)
             UpdateClassCounts()
         end
+        wipe(infoCache)
         UpdateContentVisibility(show)
     end)
 
@@ -1190,6 +1215,7 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:SetScript("OnEvent", function(self, event, loadedAddon)
     if event == "ADDON_LOADED" and loadedAddon == "Blizzard_GroupFinder_VanillaStyle" then
+        self:UnregisterEvent("ADDON_LOADED")
         C_Timer.After(0, Initialize)
     end
 end)
