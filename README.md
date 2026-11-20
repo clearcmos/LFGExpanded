@@ -4,6 +4,8 @@
 
 Built for **WoW Forever**. It is no longer updated for Classic Anniversary: v1.0.3 is the last Anniversary release.
 
+![Filters panel with Tank required, Healer and Rogue excluded](https://github.com/clearcmos/LFGExpanded/blob/main/assets/filters.png?raw=true)
+
 ---
 
 ## Features
@@ -23,14 +25,20 @@ Built for **WoW Forever**. It is no longer updated for Classic Anniversary: v1.0
 ### Locations
 
 - **Solo players** - The listing tooltip shows the player's zone on a Location line.
-- **Groups** - The listing tooltip shows each member's zone after their name once it is known. The game sends only the leader's zone with a listing; left-click the listing to look up the other members (see below).
+- **Groups** - The listing tooltip shows each member's zone after their name once it is known. The game sends only the leader's zone with a listing; left-click the listing to look up the other members, one per click (see Looking up group members below).
 - **Zones, not subzones** - A subzone is shown as its zone, so Nightmare Vale shows as Tirisfal Glades. Names that belong to more than one zone (border lakes, rivers, passes and seas) and names that are also a zone of their own (mostly dungeons and their entrances) are shown as the game reports them.
+
+![Group listing tooltip with each member's zone](https://github.com/clearcmos/LFGExpanded/blob/main/assets/group-zones.png?raw=true)
+
+![Solo listing tooltip with its Location line](https://github.com/clearcmos/LFGExpanded/blob/main/assets/solo-location.png?raw=true)
 
 ---
 
 ## Usage
 
-Open the Looking For Group window, choose Dungeons or Raids, and search. The Filters panel opens beside the window.
+Open the Looking For Group window, choose Dungeons or Raids, and search. The Filters panel opens beside the window. Its info icon lists the controls.
+
+![Filters panel with its help tooltip](https://github.com/clearcmos/LFGExpanded/blob/main/assets/filter-controls.png?raw=true)
 
 ### Looking up group members
 
