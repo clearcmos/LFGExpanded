@@ -1,9 +1,11 @@
-## Interface: 20505
+## Interface: 16001
 ## Title: LFG Expanded
-## Notes: Filter LFG List results by class and role
+## Notes: Role, class and level filters and player locations for the Group Finder
 ## Author: clearcmos
-## Version: 1.0.3
+## Version: 2.0.0
 ## DefaultState: enabled
-## AllowLoadGameType: tbc
+## AllowLoadGameType: camelot
+## SavedVariables: LFGExpandedDB
 
+Compat_Forever.lua
 LFGExpanded.lua

@@ -29,8 +29,8 @@ The recommended tool is [BigWigsMods/packager](https://github.com/marketplace/ac
 1. Go to your repo on GitHub
 2. Navigate to **Settings → Secrets and variables → Actions**
 3. Add these repository secrets:
-   - `CF_API_KEY` — Your CurseForge API token
-   - `CURSEFORGE_PROJECT_ID` — Your addon's project ID
+   - `CF_API_KEY` - Your CurseForge API token
+   - `CURSEFORGE_PROJECT_ID` - Your addon's project ID
 
 ### 4. Create the GitHub Actions Workflow
 
@@ -62,26 +62,18 @@ jobs:
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### 5. Create a .pkgmeta File (Optional)
+### 5. The .pkgmeta File
 
-Create `.pkgmeta` in your repo root to customize packaging:
-
-```yaml
-package-as: LFGExpanded
-
-ignore:
-  - README.md
-  - CHANGELOG.md
-  - .github
-  - .gitignore
-  - "*.md"
-```
+`.pkgmeta` in the repo root names the package (`package-as: LFGExpanded`), uses
+`CHANGELOG.md` as the release changelog, and keeps the docs, `.github`,
+`assets`, `tests` and `tools` out of the zip. The package holds `LFGExpanded.toc`,
+`Compat_Forever.lua`, `LFGExpanded.lua` and `LICENSE.md`.
 
 ## How to Release
 
 1. **Update your version** in `LFGExpanded.toc`:
    ```
-   ## Version: 1.0.1
+   ## Version: x.y.z
    ```
 
 2. **Update CHANGELOG.md** with the new version's changes
@@ -89,12 +81,12 @@ ignore:
 3. **Commit your changes**:
    ```bash
    git add .
-   git commit -m "chore: bump version to 1.0.1"
+   git commit -m "chore: bump version to x.y.z"
    ```
 
 4. **Create and push a tag**:
    ```bash
-   git tag v1.0.1
+   git tag vx.y.z
    git push origin main --tags
    ```
 
@@ -108,10 +100,10 @@ ignore:
 To also upload to WoWInterface and Wago, add more secrets and update the workflow:
 
 **Additional Secrets:**
-- `WOWI_API_TOKEN` — WoWInterface API token
-- `WOWI_ADDON_ID` — WoWInterface addon ID
-- `WAGO_API_TOKEN` — Wago API token
-- `WAGO_PROJECT_ID` — Wago project ID
+- `WOWI_API_TOKEN` - WoWInterface API token
+- `WOWI_ADDON_ID` - WoWInterface addon ID
+- `WAGO_API_TOKEN` - Wago API token
+- `WAGO_PROJECT_ID` - Wago project ID
 
 **Updated Workflow:**
 ```yaml
@@ -131,10 +123,9 @@ To also upload to WoWInterface and Wago, add more secrets and update the workflo
 
 ## Game Version Detection
 
-The packager automatically detects game versions from your `.toc` file's `## Interface:` line:
-- `20505` → TBC Classic / Anniversary Edition
-- `11503` → Classic Era
-- `110002` → Retail
+The packager detects the game version from the `.toc` file's `## Interface:`
+line. `16001` (WoW Forever 1.60.1) maps to CurseForge's WoW Forever game
+version. Check the `Game version:` line of a dry run before tagging.
 
 ## Resources
 

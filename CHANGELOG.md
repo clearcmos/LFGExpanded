@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.0.0
+
+- Now for WoW Forever only; Classic Anniversary stays on v1.0.3
+- Filters side tab under Blizzard's Group Finder tabs; the panel uses Forever's group finder art
+- Level range (minimum and maximum) replaces 70 Only
+- Singles is now Players, the name of Blizzard's section for solo listings
+- Class rows that no listing could fill are hidden
+- Filters are kept between sessions until Reset Filters
+- The listing tooltip shows a solo player's zone, and a zone after each group member once known
+- Left-click a group listing to look up the next member's zone with /who, with a countdown between lookups
+- Subzones are shown as their zone
+- Filtering pauses with a message when the game restricts listing details
+
 ## v1.0.3
 
 - Fix Lua error from stale LFG search results when groups delist while browsing

@@ -1,13 +1,14 @@
-local _, _ = ...
+local _, addon = ...
+local Compat = addon.Compat or {}
 
 -------------------------------------------------------------------------------
 -- Constants
 -------------------------------------------------------------------------------
 
-local GetSearchResultInfo = C_LFGList.GetSearchResultInfo
-local GetSearchResultPlayerInfo = C_LFGList.GetSearchResultPlayerInfo
-local GetSearchResultMemberCounts = C_LFGList.GetSearchResultMemberCounts
-local GetSearchResultLeaderInfo = C_LFGList.GetSearchResultLeaderInfo
+local GetSearchResultInfo = Compat.GetSearchResultInfo or C_LFGList.GetSearchResultInfo
+local GetSearchResultPlayerInfo = Compat.GetSearchResultPlayerInfo or C_LFGList.GetSearchResultPlayerInfo
+local GetSearchResultMemberCounts = Compat.GetSearchResultMemberCounts or C_LFGList.GetSearchResultMemberCounts
+local GetSearchResultLeaderInfo = Compat.GetSearchResultLeaderInfo or C_LFGList.GetSearchResultLeaderInfo
 
 local ROLE_ICON_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
 local ROLE_BG_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICONS-ROLEBACKGROUNDS"
@@ -31,8 +32,9 @@ local ROLE_BUTTON_SIZE = 48
 local ROLE_BG_SIZE = 80
 local ROLE_BUTTON_GAP = 25
 local SECTION_GAP = 10
-local CLASS_ROW_HEIGHT = 31
+local CLASS_ROW_HEIGHT = Compat.CLASS_ROW_HEIGHT or 31
 local CLASS_ICON_SMALL = 18
+local CLASS_ROWS_TOP = -80
 local PANEL_WIDTH = 384
 local PANEL_HEIGHT = 512
 local CONTENT_LEFT = 22
@@ -54,6 +56,7 @@ local filters = { roles = {}, excludeRoles = {}, classes = {}, excludeClasses = 
 local showGroups = true
 local showSingles = true
 local show70Only = false
+local levelMin, levelMax  -- inclusive member level bounds (Compat.LEVEL_RANGE); nil leaves a side open
 
 local sidePanel
 local filterTab
@@ -68,6 +71,7 @@ local seenClasses = {}
 local memberCountCache = {}
 local classCache = {}
 local classRolesInListing = {}
+local reachableClasses = {}
 
 -------------------------------------------------------------------------------
 -- Filter Logic
@@ -81,6 +85,7 @@ end
 
 local function HasActiveFilters()
     return HasActiveSection(filters) or not showGroups or not showSingles or show70Only
+        or levelMin ~= nil or levelMax ~= nil
 end
 
 local function HasActivitySelected()
@@ -176,9 +181,8 @@ local function MatchesClassInclude(f, resultID, numMembers)
     return false
 end
 
-local function ShouldShowResult(resultID, info)
-    info = info or GetSearchResultInfo(resultID)
-    if not info then return false end
+-- Everything except includes: Groups/Singles, max level, and exclusions.
+local function PassesBaseFilters(resultID, info)
     local n = info.numMembers or 0
 
     if n > 1 then
@@ -187,18 +191,27 @@ local function ShouldShowResult(resultID, info)
         if not showSingles then return false end
     end
 
-    if show70Only then
+    -- Every member's level must be inside the bounds; an unknown level passes.
+    local lo = show70Only and (Compat.GetMaxLevel and Compat.GetMaxLevel() or 70) or levelMin
+    if lo or levelMax then
         for i = 1, n do
             local mi = GetSearchResultPlayerInfo(resultID, i)
-            if mi and mi.level and mi.level < 70 then return false end
+            local level = mi and mi.level
+            if level and ((lo and level < lo) or (levelMax and level > levelMax)) then return false end
         end
     end
-
-    if not HasActiveSection(filters) then return true end
 
     -- Exclusions are AND: must pass all exclusion checks
     if not PassesRoleExclusion(filters, resultID, n) then return false end
     if not PassesClassExclusion(filters, resultID, n) then return false end
+    return true
+end
+
+local function ShouldShowResult(resultID, info)
+    info = info or GetSearchResultInfo(resultID)
+    if not info then return false end
+    if not PassesBaseFilters(resultID, info) then return false end
+    local n = info.numMembers or 0
 
     -- Includes are OR across dimensions: match any included role OR any included class
     local hasRoleIncludes = next(filters.roles) ~= nil
@@ -262,6 +275,25 @@ local function FilterResults(browseFrame)
 end
 
 local LFGROLE_TO_FILTERROLE = { tank = "TANK", healer = "HEALER", dps = "DAMAGER" }
+
+-- A class row is worth showing when including that class could bring in a
+-- listing. Includes are OR, so they are ignored here; exclusions always win.
+-- Run on the unfiltered results, before FilterResults compacts them.
+local function ComputeReachableClasses(results)
+    wipe(reachableClasses)
+    if not results then return end
+    for _, resultID in ipairs(results) do
+        local info = GetSearchResultInfo(resultID)
+        if info and PassesBaseFilters(resultID, info) then
+            for i = 1, info.numMembers or 0 do
+                local memberInfo = GetSearchResultPlayerInfo(resultID, i)
+                if memberInfo and memberInfo.classFilename then
+                    reachableClasses[memberInfo.classFilename] = true
+                end
+            end
+        end
+    end
+end
 
 local function ComputeClassData(results)
     wipe(classCounts)
@@ -362,6 +394,7 @@ end
 
 -- state: "off", "require", "exclude"
 local function UpdateClassRowVisual(row, state)
+    if row.selected then row.selected:SetShown(state == "require") end
     if state == "require" then
         row.icon:SetDesaturated(false)
         row.icon:SetVertexColor(1, 1, 1)
@@ -454,8 +487,24 @@ local function UpdateContentVisibility(show)
     if show and not allOff then
         if filterWidgets.warningText then filterWidgets.warningText:Hide() end
         if filterWidgets.showWarningText then filterWidgets.showWarningText:Hide() end
+        local y = CLASS_ROWS_TOP
         for _, row in ipairs(filterWidgets.classRows) do
-            row:Show()
+            local cls = row.filterKey
+            if not Compat.HIDE_EMPTY_CLASSES or reachableClasses[cls]
+                or filters.classes[cls] or filters.excludeClasses[cls] then
+                row:SetPoint("TOPLEFT", filterWidgets.contentFrame, "TOPLEFT", 0, y)
+                row:Show()
+                y = y - CLASS_ROW_HEIGHT
+            else
+                row:Hide()
+            end
+        end
+        -- Every row hidden: say why instead of leaving the list blank.
+        if filterWidgets.emptyText then
+            filterWidgets.emptyText:SetText(HasActiveFilters()
+                and "No listings match these filters"
+                or "No listings found. Try Search Again.")
+            filterWidgets.emptyText:SetShown(y == CLASS_ROWS_TOP)
         end
         if filterWidgets.roleButtons then
             for _, btn in ipairs(filterWidgets.roleButtons) do
@@ -476,6 +525,7 @@ local function UpdateContentVisibility(show)
         for _, row in ipairs(filterWidgets.classRows) do
             row:Hide()
         end
+        if filterWidgets.emptyText then filterWidgets.emptyText:Hide() end
         if filterWidgets.roleButtons then
             for _, btn in ipairs(filterWidgets.roleButtons) do
                 btn:Disable()
@@ -582,6 +632,7 @@ local function CreateRoleButton(parent, role, filterTable, excludeTable, refresh
     end)
     btn:SetScript("OnLeave", GameTooltip_Hide)
 
+    if Compat.StyleRoleButton then Compat.StyleRoleButton(btn, role) end
     UpdateRoleButtonVisual(btn, "off")
     return btn
 end
@@ -601,6 +652,7 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
     bg:SetPoint("TOPLEFT", 3, -2)
     bg:SetPoint("BOTTOMRIGHT", -3, 0)
     bg:SetColorTexture(1, 1, 1, 0.04)
+    row.bg = bg
 
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(CLASS_ICON_SMALL, CLASS_ICON_SMALL)
@@ -731,6 +783,7 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
     hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
     hl:SetBlendMode("ADD")
     hl:SetAlpha(0.3)
+    row.hl = hl
 
     row:SetScript("OnClick", function(self, mouseButton)
         if mouseButton == "RightButton" and excludeTable then
@@ -752,6 +805,7 @@ local function CreateClassRow(parent, class, filterTable, excludeTable, refreshF
         TriggerRefilter()
     end)
 
+    if Compat.StyleClassRow then Compat.StyleClassRow(row, class) end
     UpdateClassRowVisual(row, "off")
     return row
 end
@@ -759,6 +813,66 @@ end
 -------------------------------------------------------------------------------
 -- Section Builder (single column)
 -------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+-- Level range (min and max boxes, right-aligned in the checkbox row)
+-------------------------------------------------------------------------------
+
+local function BuildLevelRange(content, y, widgets)
+    -- InputBoxTemplate draws its left border 5 px outside the box, so the dash sits
+    -- 5 px further from the right box (DASH_RIGHT) to leave equal visible gaps.
+    local BOX_WIDTH, RIGHT_PAD, DASH_RIGHT, DASH_LEFT, LABEL_GAP = 24, 4, 10.5, 6, 9
+    local boxes = {}
+    local function Sync()
+        boxes[1]:SetText(levelMin and tostring(levelMin) or "")
+        boxes[2]:SetText(levelMax and tostring(levelMax) or "")
+    end
+    -- Enter or leaving a box applies both; Escape puts the applied values back first.
+    local function Commit()
+        local lo, hi = tonumber(boxes[1]:GetText()), tonumber(boxes[2]:GetText())
+        if lo and lo < 1 then lo = nil end
+        if hi and hi < 1 then hi = nil end
+        if lo and hi and lo > hi then lo, hi = hi, lo end
+        local changed = lo ~= levelMin or hi ~= levelMax
+        levelMin, levelMax = lo, hi
+        Sync()
+        if changed then TriggerRefilter() end
+    end
+    local function Box()
+        local box = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
+        box:SetSize(BOX_WIDTH, 20)
+        box:SetAutoFocus(false)
+        box:SetNumeric(true)
+        box:SetMaxLetters(2)
+        box:SetJustifyH("CENTER")
+        box:SetScript("OnEnterPressed", box.ClearFocus)
+        box:SetScript("OnEscapePressed", function(self) Sync(); self:ClearFocus() end)
+        box:HookScript("OnEditFocusLost", Commit)
+        box:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Level range", 1, 1, 1)
+            GameTooltip:AddLine("Every member must be within it. Leave a box empty for no limit.", 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+        end)
+        box:SetScript("OnLeave", GameTooltip_Hide)
+        return box
+    end
+    boxes[1], boxes[2] = Box(), Box()
+    boxes[2]:SetPoint("TOPRIGHT", content, "TOPLEFT", CONTENT_WIDTH - RIGHT_PAD, y)
+    local dash = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    dash:SetPoint("RIGHT", boxes[2], "LEFT", -DASH_RIGHT, 0)
+    dash:SetText("-")
+    boxes[1]:SetPoint("RIGHT", dash, "LEFT", -DASH_LEFT, 0)
+    local label = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("RIGHT", boxes[1], "LEFT", -LABEL_GAP, 0)
+    label:SetText("Level")
+    -- Where the Level label starts, so the checkbox before it can be centered.
+    widgets.levelLeft = CONTENT_WIDTH - RIGHT_PAD - BOX_WIDTH - DASH_RIGHT - dash:GetStringWidth()
+        - DASH_LEFT - BOX_WIDTH - LABEL_GAP - label:GetStringWidth()
+    widgets.levelBoxes = boxes
+    widgets.SyncLevels = Sync
+    Sync()
+end
 
 local function BuildFilterSection(parent, f, widgets)
     local content = CreateFrame("Frame", nil, parent)
@@ -791,11 +905,14 @@ local function BuildFilterSection(parent, f, widgets)
     local CHECK_SIZE = 20
     local checkData = {
         { label = "Groups",  getter = function() return showGroups end,  setter = function(v) showGroups = v end },
-        { label = "Singles", getter = function() return showSingles end, setter = function(v) showSingles = v end },
-        { label = "70 Only", getter = function() return show70Only end,  setter = function(v) show70Only = v end },
+        { label = Compat.SINGLES_LABEL or "Singles", getter = function() return showSingles end, setter = function(v) showSingles = v end },
     }
-    local checkSpacing = CONTENT_WIDTH / #checkData
+    if not Compat.LEVEL_RANGE then
+        checkData[3] = { label = Compat.GetMaxLevel and "Max level" or "70 Only", getter = function() return show70Only end,  setter = function(v) show70Only = v end }
+    end
+    local checkSpacing = CONTENT_WIDTH / 3
     widgets.showCheckboxes = {}
+    local checkX, checkLabels = {}, {}
     for i, info in ipairs(checkData) do
         local cb = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
         cb:SetSize(CHECK_SIZE, CHECK_SIZE)
@@ -805,6 +922,7 @@ local function BuildFilterSection(parent, f, widgets)
         local lbl = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         lbl:SetPoint("LEFT", cb, "RIGHT", 2, 1)
         lbl:SetText(info.label)
+        checkX[i], checkLabels[i] = xOff, lbl
         cb:SetScript("OnClick", function(self)
             PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
             info.setter(self:GetChecked())
@@ -813,10 +931,17 @@ local function BuildFilterSection(parent, f, widgets)
         widgets.showCheckboxes[i] = cb
         widgets.showCheckboxes[info.label] = cb
     end
+    if Compat.LEVEL_RANGE then
+        BuildLevelRange(content, checkY, widgets)
+        -- Center the second checkbox and its label between the first label and "Level".
+        local firstEnd = checkX[1] + CHECK_SIZE + 2 + checkLabels[1]:GetStringWidth()
+        local width = CHECK_SIZE + 2 + checkLabels[2]:GetStringWidth()
+        widgets.showCheckboxes[2]:SetPoint("TOPLEFT", content, "TOPLEFT", (firstEnd + widgets.levelLeft - width) / 2, checkY)
+    end
 
     -- No manual separator needed — the baked-in ornate bar in UI-LFG-FRAME
     -- at y=-128 is revealed by positioning bgArt to start just below it
-    cYOff = -80
+    cYOff = CLASS_ROWS_TOP
 
     widgets.classRows = {}
     for _, class in ipairs(CLASS_ORDER) do
@@ -841,10 +966,19 @@ local function BuildFilterSection(parent, f, widgets)
     showWarning:SetPoint("CENTER", content, "TOPLEFT", CONTENT_WIDTH / 2, -200)
     showWarning:SetWidth(CONTENT_WIDTH - 40)
     showWarning:SetJustifyH("CENTER")
-    showWarning:SetText("Enable Groups or Singles above to see listings")
+    showWarning:SetText("Enable Groups or " .. (Compat.SINGLES_LABEL or "Singles") .. " above to see listings")
     showWarning:SetTextColor(0.6, 0.6, 0.6)
     showWarning:Hide()
     widgets.showWarningText = showWarning
+
+    -- Shown when every class row is hidden (Compat.HIDE_EMPTY_CLASSES only)
+    local empty = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    empty:SetPoint("CENTER", content, "TOPLEFT", CONTENT_WIDTH / 2, -200)
+    empty:SetWidth(CONTENT_WIDTH - 40)
+    empty:SetJustifyH("CENTER")
+    empty:SetTextColor(0.6, 0.6, 0.6)
+    empty:Hide()
+    widgets.emptyText = empty
 
     return cYOff
 end
@@ -854,7 +988,8 @@ end
 -------------------------------------------------------------------------------
 
 local function SetFilterTabHighlight(active)
-    if not filterTab then return end
+    -- Forever's side tab follows the panel's visibility on its own.
+    if not filterTab or Compat.CreateToggle then return end
     if active then
         filterTab:SetNormalFontObject(GameFontHighlightSmall)
     else
@@ -865,72 +1000,77 @@ end
 local function CreateSidePanel()
     if sidePanel then return sidePanel end
 
-    sidePanel = CreateFrame("Frame", "LFGExpandedPanel", LFGParentFrame, "PortraitFrameTemplate")
-    sidePanel:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
-    sidePanel:SetPoint("TOPLEFT", LFGParentFrame, "TOPRIGHT", -1, 0)
-    sidePanel:SetFrameStrata("DIALOG")
+    if Compat.CreatePanel then
+        sidePanel = Compat.CreatePanel(LFGParentFrame, PANEL_WIDTH, PANEL_HEIGHT)
+    else
+        sidePanel = CreateFrame("Frame", "LFGExpandedPanel", LFGParentFrame, "PortraitFrameTemplate")
+        sidePanel:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
+        sidePanel:SetPoint("TOPLEFT", LFGParentFrame, "TOPRIGHT", -1, 0)
+        sidePanel:SetFrameStrata("DIALOG")
 
-    ---------------------------------------------------------------------------
-    -- Hide PortraitFrameTemplate chrome (we only use it for the portrait)
-    ---------------------------------------------------------------------------
+        ---------------------------------------------------------------------------
+        -- Hide PortraitFrameTemplate chrome (we only use it for the portrait)
+        ---------------------------------------------------------------------------
 
-    sidePanel.Bg:Hide()
-    sidePanel.TitleBg:Hide()
-    sidePanel.TopBorder:Hide()
-    sidePanel.TopRightCorner:Hide()
-    sidePanel.BotLeftCorner:Hide()
-    sidePanel.BotRightCorner:Hide()
-    sidePanel.BottomBorder:Hide()
-    sidePanel.LeftBorder:Hide()
-    sidePanel.RightBorder:Hide()
-    sidePanel.TopTileStreaks:Hide()
-    sidePanel.PortraitFrame:Hide()
-    sidePanel.TitleText:Hide()
-    sidePanel.CloseButton:Hide()
-    if sidePanel.NineSlice then sidePanel.NineSlice:Hide() end
-    -- Hide the unmasked portrait duplicate from PortraitFrameTemplateNoCloseButton
-    if sidePanel.portrait then sidePanel.portrait:Hide() end
+        sidePanel.Bg:Hide()
+        sidePanel.TitleBg:Hide()
+        sidePanel.TopBorder:Hide()
+        sidePanel.TopRightCorner:Hide()
+        sidePanel.BotLeftCorner:Hide()
+        sidePanel.BotRightCorner:Hide()
+        sidePanel.BottomBorder:Hide()
+        sidePanel.LeftBorder:Hide()
+        sidePanel.RightBorder:Hide()
+        sidePanel.TopTileStreaks:Hide()
+        sidePanel.PortraitFrame:Hide()
+        sidePanel.TitleText:Hide()
+        sidePanel.CloseButton:Hide()
+        if sidePanel.NineSlice then sidePanel.NineSlice:Hide() end
+        -- Hide the unmasked portrait duplicate from PortraitFrameTemplateNoCloseButton
+        if sidePanel.portrait then sidePanel.portrait:Hide() end
 
-    ---------------------------------------------------------------------------
-    -- Portrait (circle-masked, from PortraitFrameTemplate's PortraitContainer)
-    ---------------------------------------------------------------------------
+        ---------------------------------------------------------------------------
+        -- Portrait (circle-masked, from PortraitFrameTemplate's PortraitContainer)
+        ---------------------------------------------------------------------------
 
-    -- Reposition PortraitContainer so the portrait centers within the LFG ring
-    -- Ring center = TOPLEFT(12,-5) + half of 64x64 = (44,-37)
-    -- Portrait is 62x62 at (-5,7) within container, so container goes at (18,-13)
-    sidePanel.PortraitContainer:ClearAllPoints()
-    sidePanel.PortraitContainer:SetPoint("TOPLEFT", sidePanel, "TOPLEFT", 18, -13)
-    SetPortraitToTexture(sidePanel.PortraitContainer.portrait, "Interface\\FriendsFrame\\FriendsFrameScrollIcon")
+        -- Reposition PortraitContainer so the portrait centers within the LFG ring
+        -- Ring center = TOPLEFT(12,-5) + half of 64x64 = (44,-37)
+        -- Portrait is 62x62 at (-5,7) within container, so container goes at (18,-13)
+        sidePanel.PortraitContainer:ClearAllPoints()
+        sidePanel.PortraitContainer:SetPoint("TOPLEFT", sidePanel, "TOPLEFT", 18, -13)
+        SetPortraitToTexture(sidePanel.PortraitContainer.portrait, "Interface\\FriendsFrame\\FriendsFrameScrollIcon")
 
-    -- LFG-style gold portrait ring (over the template's masked portrait)
-    local portraitBorder = sidePanel:CreateTexture(nil, "OVERLAY")
-    portraitBorder:SetSize(64, 64)
-    portraitBorder:SetPoint("TOPLEFT", 12, -5)
-    portraitBorder:SetTexture("Interface\\LFGFrame\\UI-LFG-PORTRAIT")
+        -- LFG-style gold portrait ring (over the template's masked portrait)
+        local portraitBorder = sidePanel:CreateTexture(nil, "OVERLAY")
+        portraitBorder:SetSize(64, 64)
+        portraitBorder:SetPoint("TOPLEFT", 12, -5)
+        portraitBorder:SetTexture("Interface\\LFGFrame\\UI-LFG-PORTRAIT")
 
-    ---------------------------------------------------------------------------
-    -- Background textures (LFG-style, 2-piece)
-    ---------------------------------------------------------------------------
+        ---------------------------------------------------------------------------
+        -- Background textures (LFG-style, 2-piece)
+        ---------------------------------------------------------------------------
 
-    local bgTop = sidePanel:CreateTexture(nil, "BACKGROUND", nil, -1)
-    bgTop:SetSize(512, 256)
-    bgTop:SetPoint("TOPLEFT", 0, 0)
-    bgTop:SetTexture("Interface\\LFGFrame\\UI-LFG-FRAME")
-    bgTop:SetTexCoord(0, 1.0, 0, 0.5)
+        local bgTop = sidePanel:CreateTexture(nil, "BACKGROUND", nil, -1)
+        bgTop:SetSize(512, 256)
+        bgTop:SetPoint("TOPLEFT", 0, 0)
+        bgTop:SetTexture("Interface\\LFGFrame\\UI-LFG-FRAME")
+        bgTop:SetTexCoord(0, 1.0, 0, 0.5)
 
-    local bgBot = sidePanel:CreateTexture(nil, "BACKGROUND", nil, 1)
-    bgBot:SetSize(512, 256)
-    bgBot:SetPoint("TOPLEFT", 0, -256)
-    bgBot:SetTexture("Interface\\LFGFrame\\UI-LFG-FRAME")
-    bgBot:SetTexCoord(0, 1.0, 0.5, 1.0)
+        local bgBot = sidePanel:CreateTexture(nil, "BACKGROUND", nil, 1)
+        bgBot:SetSize(512, 256)
+        bgBot:SetPoint("TOPLEFT", 0, -256)
+        bgBot:SetTexture("Interface\\LFGFrame\\UI-LFG-FRAME")
+        bgBot:SetTexCoord(0, 1.0, 0.5, 1.0)
 
-    -- Content area background: matches native LFG exactly (y=-128, 282px tall)
-    -- This reveals the ornate separator bars baked into UI-LFG-FRAME at both
-    -- the top (between roles and content) and bottom (above button wells)
-    local bgArt = sidePanel:CreateTexture(nil, "BACKGROUND", nil, 2)
-    bgArt:SetSize(CONTENT_WIDTH, 282)
-    bgArt:SetPoint("TOPLEFT", CONTENT_LEFT, -128)
-    bgArt:SetAtlas("groupfinder-background-classic")
+        -- Content area background: matches native LFG exactly (y=-128, 282px tall)
+        -- This reveals the ornate separator bars baked into UI-LFG-FRAME at both
+        -- the top (between roles and content) and bottom (above button wells)
+        local bgArt = sidePanel:CreateTexture(nil, "BACKGROUND", nil, 2)
+        bgArt:SetSize(CONTENT_WIDTH, 282)
+        bgArt:SetPoint("TOPLEFT", CONTENT_LEFT, -128)
+        bgArt:SetAtlas("groupfinder-background-classic")
+
+    end
 
     ---------------------------------------------------------------------------
     -- Title
@@ -970,13 +1110,21 @@ local function CreateSidePanel()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Filter Controls", 1, 1, 1)
         GameTooltip:AddLine(" ", 1, 1, 1)
-        GameTooltip:AddLine("|cffffffffCheckboxes|r  Toggle groups, singles, and 70 only", 0.8, 0.8, 0.8)
+        if Compat.LEVEL_RANGE then
+            GameTooltip:AddLine("|cffffffffCheckboxes|r  Toggle groups and " .. (Compat.SINGLES_LABEL or "Singles"):lower(), 0.8, 0.8, 0.8)
+            GameTooltip:AddLine("|cffffffffLevel|r  Every member within the range", 0.8, 0.8, 0.8)
+        else
+            GameTooltip:AddLine(Compat.GetMaxLevel and "|cffffffffCheckboxes|r  Toggle groups, singles, and max level" or "|cffffffffCheckboxes|r  Toggle groups, singles, and 70 only", 0.8, 0.8, 0.8)
+        end
         GameTooltip:AddLine("|cffffffffClass info icon|r  View listing notes for that class", 0.8, 0.8, 0.8)
         GameTooltip:AddLine(" ", 1, 1, 1)
         GameTooltip:AddLine("|cff80ff80Left-click|r  Include (must have this role/class)", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("|cffff6666Right-click|r  Exclude (must NOT have this role/class)", 0.8, 0.8, 0.8)
         GameTooltip:AddLine(" ", 1, 1, 1)
         GameTooltip:AddLine("Click again to clear the filter", 0.8, 0.8, 0.8)
+        if Compat.PERSIST_FILTERS then
+            GameTooltip:AddLine("Filters are kept between sessions until Reset Filters", 0.8, 0.8, 0.8)
+        end
         GameTooltip:Show()
     end)
     infoBtn:SetScript("OnLeave", function()
@@ -1023,6 +1171,8 @@ local function CreateSidePanel()
         showGroups = true
         showSingles = true
         show70Only = false
+        levelMin, levelMax = nil, nil
+        if filterWidgets.SyncLevels then filterWidgets.SyncLevels() end
         if filterWidgets.showCheckboxes then
             for i, cb in ipairs(filterWidgets.showCheckboxes) do
                 if i == 1 then cb:SetChecked(true) end   -- Groups
@@ -1034,6 +1184,10 @@ local function CreateSidePanel()
         TriggerRefilter()
     end)
 
+    if Compat.LayoutPanel then
+        Compat.LayoutPanel(sidePanel, { title = title, close = closeBtn, info = infoBtn, search = searchBtn, reset = resetBtn })
+    end
+
     return sidePanel
 end
 
@@ -1042,6 +1196,15 @@ end
 -------------------------------------------------------------------------------
 
 local function CreateFilterTab()
+    if Compat.CreateToggle then
+        -- The side tab template plays the tab sound itself.
+        filterTab = Compat.CreateToggle(LFGParentFrame, sidePanel, function()
+            local show = not sidePanel:IsShown()
+            sidePanel:SetShown(show)
+            panelDismissed = not show
+        end)
+        return
+    end
     filterTab = CreateFrame("Button", "LFGParentFrameTab3", LFGParentFrame, "CharacterFrameTabButtonTemplate")
     filterTab:SetID(3)
     filterTab:SetText("Filters")
@@ -1109,23 +1272,75 @@ end
 
 local initialized = false
 
+-- Remembered filters (Compat.PERSIST_FILTERS). Saved at logout, restored at
+-- initialization; anything malformed in the saved table is ignored.
+local SAVED_FILTER_KEYS = { roles = ROLE_LABELS, excludeRoles = ROLE_LABELS, classes = CLASS_LABELS, excludeClasses = CLASS_LABELS }
+
+local function SavedLevel(value)
+    if type(value) == "number" and value >= 1 and value <= 99 and value % 1 == 0 then return value end
+end
+
+local function RestoreFilters()
+    local db = LFGExpandedDB
+    if type(db) ~= "table" then return end
+    for key, valid in pairs(SAVED_FILTER_KEYS) do
+        if type(db[key]) == "table" then
+            for k, v in pairs(db[key]) do
+                if v == true and valid[k] then filters[key][k] = true end
+            end
+        end
+    end
+    for k in pairs(filters.roles) do filters.excludeRoles[k] = nil end
+    for k in pairs(filters.classes) do filters.excludeClasses[k] = nil end
+    if type(db.showGroups) == "boolean" then showGroups = db.showGroups end
+    if type(db.showSingles) == "boolean" then showSingles = db.showSingles end
+    levelMin, levelMax = SavedLevel(db.levelMin), SavedLevel(db.levelMax)
+    if levelMin and levelMax and levelMin > levelMax then levelMin, levelMax = levelMax, levelMin end
+end
+
+local function SaveFilters()
+    local db = { showGroups = showGroups, showSingles = showSingles, levelMin = levelMin, levelMax = levelMax }
+    for key in pairs(SAVED_FILTER_KEYS) do
+        db[key] = {}
+        for k in pairs(filters[key]) do db[key][k] = true end
+    end
+    LFGExpandedDB = db
+end
+
+local function ResultsAccessible()
+    if not Compat.PrepareResults then return true end
+    if Compat.PrepareResults(LFGBrowseFrame.results) then return true end
+    wipe(infoCache)
+    wipe(classNotes)
+    UpdateContentVisibility(false)
+    if filterWidgets.warningText then
+        filterWidgets.warningText:SetText("Listing details are restricted or still loading. Filters are paused; Blizzard's results remain visible.")
+    end
+    return false
+end
+
 local function Initialize()
     if initialized then return end
     if not LFGBrowseFrame or not LFGParentFrame then return end
     initialized = true
+    if Compat.HookEntryTooltip then Compat.HookEntryTooltip() end
 
     -- Wrap Blizzard's LFGBrowseSearchEntry_Update to guard against stale resultIDs
     -- (C_LFGList.GetSearchResultInfo returns nil for delisted groups)
-    local orig_LFGBrowseSearchEntry_Update = LFGBrowseSearchEntry_Update
-    function LFGBrowseSearchEntry_Update(self, ...)
-        if not GetSearchResultInfo(self.resultID) then
-            self:Hide()
-            return
+    if not Compat.CreatePanel then
+        local orig_LFGBrowseSearchEntry_Update = LFGBrowseSearchEntry_Update
+        function LFGBrowseSearchEntry_Update(self, ...)
+            if not GetSearchResultInfo(self.resultID) then
+                self:Hide()
+                return
+            end
+            orig_LFGBrowseSearchEntry_Update(self, ...)
         end
-        orig_LFGBrowseSearchEntry_Update(self, ...)
     end
 
+    if Compat.PERSIST_FILTERS then RestoreFilters() end
     CreateSidePanel()
+    RefreshSection(filterWidgets, filters)
     sidePanel:Hide()
 
     CreateFilterTab()
@@ -1143,7 +1358,9 @@ local function Initialize()
     local cats = C_LFGList.GetAvailableCategories()
     for _, catID in ipairs(cats) do
         local info = C_LFGList.GetLfgCategoryInfo(catID)
-        if info and info.name then
+        if Compat.IsCategorySupported then
+            if Compat.IsCategorySupported(catID) then DUNGEON_AND_RAID_CATEGORIES[catID] = true end
+        elseif info and info.name then
             local lower = info.name:lower()
             if lower:find("dungeon") or lower:find("raid") then
                 DUNGEON_AND_RAID_CATEGORIES[catID] = true
@@ -1178,6 +1395,11 @@ local function Initialize()
 
     hooksecurefunc(LFGBrowseFrame, "UpdateResultList", function(self)
         local show = HasActivitySelected()
+        if show and not ResultsAccessible() then return end
+        if show and Compat.HIDE_EMPTY_CLASSES then ComputeReachableClasses(self.results) end
+        if filterWidgets.warningText then
+            filterWidgets.warningText:SetText("Create a listing, or select at least one dungeon or raid in Group Browser and click Get Started")
+        end
         if show and HasActiveFilters() then
             local pct = SaveScroll()
             FilterResults(self)
@@ -1193,7 +1415,8 @@ local function Initialize()
     end)
 
     -- Check if activity already selected (e.g., after /reload)
-    if HasActivitySelected() then
+    if HasActivitySelected() and ResultsAccessible() then
+        if Compat.HIDE_EMPTY_CLASSES then ComputeReachableClasses(LFGBrowseFrame.results) end
         ComputeClassData(LFGBrowseFrame.results)
         UpdateClassCounts()
         UpdateContentVisibility(true)
@@ -1203,6 +1426,7 @@ local function Initialize()
     sidePanel:HookScript("OnShow", function()
         local show = HasActivitySelected()
         if show and LFGBrowseFrame.results then
+            if not ResultsAccessible() then return end
             ComputeClassData(LFGBrowseFrame.results)
             UpdateClassCounts()
         end
@@ -1213,7 +1437,13 @@ end
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
+if Compat.PERSIST_FILTERS then frame:RegisterEvent("PLAYER_LOGOUT") end
 frame:SetScript("OnEvent", function(self, event, loadedAddon)
+    if event == "PLAYER_LOGOUT" then
+        -- Only after a restore, or a session that never opened LFG would wipe the saved filters.
+        if initialized then SaveFilters() end
+        return
+    end
     if event == "ADDON_LOADED" and loadedAddon == "Blizzard_GroupFinder_VanillaStyle" then
         self:UnregisterEvent("ADDON_LOADED")
         C_Timer.After(0, Initialize)

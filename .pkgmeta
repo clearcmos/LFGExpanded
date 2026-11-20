@@ -13,3 +13,5 @@ ignore:
   - .gitignore
   - .pkgmeta
   - assets
+  - tests
+  - tools
